@@ -357,6 +357,91 @@ async function fetchUsage(rawCookie: unknown): Promise<Usage> {
   }
 }
 
+// 模型图标：面板受宿主 CSP 限制无法直连外网，这里代为拉取 models.dev 的 lab logo 并缓存。
+// 解析不到 lab 的模型用 "default" 取 models.dev 的默认图标（/logos/default.svg）。
+const MODELS_DEV_ORIGIN = "https://models.dev"
+const MODELS_DEV_API = `${MODELS_DEV_ORIGIN}/api.json`
+const DEFAULT_LAB = "default"
+const LOGO_LAB_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/i
+const LOGO_MAX_BYTES = 24_000
+const LOGO_TIMEOUT_MS = 8_000
+const MODEL_LABS_TIMEOUT_MS = 12_000
+const MAX_LOGOS_PER_REQUEST = 24
+const logoCache = new Map<string, string>()
+
+async function fetchLogo(lab: string): Promise<string> {
+  const cached = logoCache.get(lab)
+  if (cached !== undefined) return cached
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), LOGO_TIMEOUT_MS)
+  try {
+    const logoPath = lab === DEFAULT_LAB ? "logos/default.svg" : `logos/labs/${encodeURIComponent(lab)}.svg`
+    const response = await fetch(`${MODELS_DEV_ORIGIN}/${logoPath}`, {
+      signal: controller.signal,
+      redirect: "error",
+      headers: { Accept: "image/svg+xml, text/plain, */*", "User-Agent": USER_AGENT },
+    })
+    if (!response.ok) return ""
+    const svg = await response.text()
+    if (!svg || svg.length > LOGO_MAX_BYTES || !svg.includes("<svg")) return ""
+    logoCache.set(lab, svg)
+    return svg
+  } catch {
+    return ""
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function fetchLogos(rawLabs: unknown) {
+  const requested = Array.isArray(rawLabs) ? rawLabs : []
+  const labs = [...new Set(requested
+    .filter((lab): lab is string => typeof lab === "string" && LOGO_LAB_PATTERN.test(lab.trim()))
+    .map((lab) => lab.trim().toLowerCase()))]
+    .slice(0, MAX_LOGOS_PER_REQUEST)
+  const entries = await Promise.all(labs.map(async (lab) => [lab, await fetchLogo(lab)] as const))
+  const logos: Record<string, string> = {}
+  for (const [lab, svg] of entries) {
+    if (svg) logos[lab] = svg
+  }
+  return logos
+}
+
+// 运行时映射表：面板在设置页点“更新模型图标”时调用，取 models.dev 的 commandcode provider。
+function extractModelLabs(catalog: unknown): Record<string, string> {
+  if (!isRecord(catalog) || !isRecord(catalog.commandcode)) return {}
+  const models = catalog.commandcode.models
+  if (!isRecord(models)) return {}
+  const map: Record<string, string> = {}
+  for (const [id, model] of Object.entries(models)) {
+    const canonical = isRecord(model) && typeof model.canonical_model_id === "string" ? model.canonical_model_id : ""
+    const slash = canonical.indexOf("/")
+    if (slash > 0) map[id] = canonical.slice(0, slash)
+  }
+  return map
+}
+
+async function fetchModelLabs() {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), MODEL_LABS_TIMEOUT_MS)
+  try {
+    const response = await fetch(MODELS_DEV_API, {
+      signal: controller.signal,
+      redirect: "error",
+      headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+    })
+    if (!response.ok) throw new Error(`models.dev returned HTTP ${response.status}`)
+    const map = extractModelLabs(await response.json())
+    if (!Object.keys(map).length) throw new Error("models.dev returned no CommandCode models")
+    return { map, updatedAt: new Date().toISOString() }
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("models.dev request timed out")
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function json(res: http.ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" })
   res.end(JSON.stringify(body))
@@ -372,7 +457,7 @@ const server = http.createServer((req, res) => {
     json(res, 200, { ok: true })
     return
   }
-  if (req.method !== "POST" || (url.pathname !== "/usage" && url.pathname !== "/usage-log")) {
+  if (req.method !== "POST" || (url.pathname !== "/usage" && url.pathname !== "/usage-log" && url.pathname !== "/logos" && url.pathname !== "/model-labs")) {
     json(res, 404, { error: "Not found" })
     return
   }
@@ -394,9 +479,13 @@ const server = http.createServer((req, res) => {
       return
     }
     const cookie = isRecord(input) ? input.cookie : undefined
-    const respond = route === "/usage-log"
-      ? fetchUsageLog(cookie, isRecord(input) ? input.cursor : undefined, isRecord(input) ? input.limit : undefined).then((page) => json(res, 200, page))
-      : fetchUsage(cookie).then((usage) => json(res, 200, { usage }))
+    const respond = route === "/logos"
+      ? fetchLogos(isRecord(input) ? input.labs : undefined).then((logos) => json(res, 200, { logos }))
+      : route === "/model-labs"
+        ? fetchModelLabs().then((labs) => json(res, 200, labs))
+        : route === "/usage-log"
+          ? fetchUsageLog(cookie, isRecord(input) ? input.cursor : undefined, isRecord(input) ? input.limit : undefined).then((page) => json(res, 200, page))
+          : fetchUsage(cookie).then((usage) => json(res, 200, { usage }))
     void respond
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Usage request failed"

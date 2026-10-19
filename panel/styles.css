@@ -55,7 +55,10 @@ p { font-size: calc(13px * var(--text-scale)); line-height: 1.5; }
 .model-row { display: grid; min-width: 0; gap: 3px; padding: 9px 2px; border-top: 1px solid var(--oc-border, rgba(127,127,127,.2)); }
 .model-row > .caption { min-width: 0; margin-top: 0; }
 .model-row:first-child { border-top: 0; padding-top: 2px; }
-.model-name { min-width: 0; overflow-wrap: anywhere; font-size: calc(12px * var(--text-scale)); font-weight: 650; line-height: 1.35; }
+.model-name { display: flex; min-width: 0; align-items: center; gap: 6px; font-size: calc(12px * var(--text-scale)); font-weight: 650; line-height: 1.35; }
+.model-name-text { min-width: 0; overflow-wrap: anywhere; }
+.model-logo { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: calc(15px * var(--text-scale)); height: calc(15px * var(--text-scale)); color: var(--oc-muted, #888); }
+.model-logo svg { display: block; width: 100%; height: 100%; }
 .model-token-line { display: grid; width: 100%; grid-auto-columns: max-content; grid-auto-flow: column; gap: 10px; overflow-x: auto; color: var(--oc-muted, #888); font-size: calc(10px * var(--text-scale)); line-height: 1.4; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .model-total-token { color: var(--oc-foreground, inherit); font-weight: 600; }
 .log-timing { font-size: calc(12px * var(--text-scale)); }
@@ -92,6 +95,7 @@ p { font-size: calc(13px * var(--text-scale)); line-height: 1.5; }
 .setting-block { margin-top: 14px; }
 .setting-block > .setting-row { margin-top: 0; }
 .setting-hint { margin-top: 4px; white-space: normal; overflow-wrap: anywhere; }
+.model-icons-status.is-error { color: var(--oc-error, #e5484d); }
 .number-field { display: inline-flex; align-items: center; }
 .number-input { width: 76px; border: 1px solid var(--oc-border, rgba(127,127,127,.3)); background: var(--oc-background, transparent); color: inherit; border-radius: 7px; padding: 5px 6px; font: inherit; font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
 .number-input:focus-visible { outline: 2px solid var(--oc-primary, #8c4edd); outline-offset: 2px; }

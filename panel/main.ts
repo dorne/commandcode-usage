@@ -1,5 +1,6 @@
 import { connectHost, HostRequestError } from "@openchamber/sdk"
 import { applyHostReady } from "@openchamber/sdk/ui"
+import modelLabs from "./model-labs.json"
 
 type WindowUsage = {
   label: string
@@ -133,9 +134,15 @@ const messages = {
     logLoading: "Loading…",
     logMore: "Scroll to load more",
     logLoadFailed: "Could not load more. Check your connection and try again.",
-    logPageSize: "Page size",
-    logPageSizeHint: (min: number, max: number, fallback: number) => `Entries requested per page (${min}–${max}, default ${fallback}).`,
+    logPageSize: "Activity page size",
+    logPageSizeHint: (min: number, max: number, fallback: number) => `Activity entries requested per page (${min}–${max}, default ${fallback}).`,
     retry: "Retry",
+    modelIcons: "Model icons",
+    updateModelIcons: "Update model icons",
+    updatingModelIcons: "Updating…",
+    modelIconsHint: "Fetch the latest model → provider mapping from models.dev so models added after this version still get logos.",
+    modelIconsNeverUpdated: "Not updated yet",
+    modelIconsFailed: "Could not update model icons. Check your connection and try again.",
     timing: "Duration",
     mode: "Mode",
     status: "Status",
@@ -211,9 +218,15 @@ const messages = {
     logLoading: "正在加载…",
     logMore: "上滑加载更多",
     logLoadFailed: "加载更多失败，请检查网络后重试。",
-    logPageSize: "每页数量",
-    logPageSizeHint: (min: number, max: number, fallback: number) => `每次请求获取的记录条数，范围 ${min}–${max}，默认 ${fallback}。`,
+    logPageSize: "活动记录每页数量",
+    logPageSizeHint: (min: number, max: number, fallback: number) => `活动记录每次请求获取的条数，范围 ${min}–${max}，默认 ${fallback}。`,
     retry: "重试",
+    modelIcons: "模型图标",
+    updateModelIcons: "更新模型图标",
+    updatingModelIcons: "更新中…",
+    modelIconsHint: "从 models.dev 获取最新的模型到厂商映射，让此版本之后新增的模型也有图标。",
+    modelIconsNeverUpdated: "尚未更新",
+    modelIconsFailed: "更新模型图标失败，请检查网络后重试。",
     timing: "耗时",
     mode: "模式",
     status: "状态",
@@ -423,6 +436,53 @@ function logPageSizeField() {
   return block
 }
 
+// 设置页：从 models.dev 手动更新运行时映射表，让此版本之后新增的模型也能显示图标。
+function modelIconsField() {
+  const block = el("div", "setting-block")
+  const field = el("div", "setting-row")
+  const button = el("button", "secondary update-model-icons", t("updateModelIcons"))
+  button.type = "button"
+  const status = el("p", "caption setting-hint model-icons-status", modelIconsStatus())
+  button.addEventListener("click", () => { void updateModelIcons(button, status) })
+  field.append(el("span", "setting-label", t("modelIcons")), button)
+  block.append(field, el("p", "caption setting-hint", t("modelIconsHint")), status)
+  return block
+}
+
+function modelIconsStatus() {
+  const updatedAt = modelLabsUpdatedAt ? dateLabel(modelLabsUpdatedAt) : undefined
+  return updatedAt ? `${t("updated")}: ${updatedAt}` : t("modelIconsNeverUpdated")
+}
+
+async function updateModelIcons(button: HTMLButtonElement, status: HTMLElement) {
+  if (button.disabled) return
+  const original = button.textContent ?? t("updateModelIcons")
+  button.disabled = true
+  button.textContent = t("updatingModelIcons")
+  status.classList.remove("is-error")
+  status.textContent = t("updatingModelIcons")
+  try {
+    const result = await host.serviceRequest({ method: "POST", path: "/model-labs", body: "{}" })
+    const payload = JSON.parse(result.body) as { map?: Record<string, string>; updatedAt?: string }
+    if (result.status < 200 || result.status >= 300 || !payload?.map || !Object.keys(payload.map).length) {
+      throw new Error(t("localError")(result.status))
+    }
+    runtimeModelLabs = payload.map
+    modelLabsUpdatedAt = payload.updatedAt ?? new Date().toISOString()
+    await host.storage.set(MODEL_LABS_STORAGE_KEY, { map: runtimeModelLabs, updatedAt: modelLabsUpdatedAt }).catch(() => {})
+    // 映射可能变化，清掉图标缓存让新的 lab 图标在下次渲染时重新获取。
+    logoSvgCache.clear()
+    logoHosts.clear()
+    status.textContent = modelIconsStatus()
+  } catch {
+    status.classList.add("is-error")
+    status.textContent = t("modelIconsFailed")
+  } finally {
+    button.disabled = false
+    button.textContent = original
+  }
+}
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, value?: string) {
   const node = document.createElement(tag)
   if (className) node.className = className
@@ -588,6 +648,7 @@ function showSettings(message?: string, error = false, preserveDraft = false) {
   root.append(textSizeField())
   root.append(refreshIntervalField())
   root.append(logPageSizeField())
+  root.append(modelIconsField())
 
   if (message) root.append(el("div", `notice${error ? " error" : ""}`, message))
   const controls = el("div", "controls settings-actions")
@@ -736,7 +797,7 @@ function modelUsageCard(data: Usage) {
   })
   for (const model of sortedModels) {
     const item = el("article", "model-row")
-    item.append(el("div", "model-name", model.model))
+    item.append(modelNameNode(model.model))
 
     const tokenLine = el("div", "model-token-line")
     if (model.tokensTotal !== undefined) {
@@ -819,6 +880,166 @@ function logStatusBadge(entry: UsageLogEntry) {
   return badge
 }
 
+// 模型图标：models.dev 按厂商 lab 提供 logo（/logos/labs/{lab}.svg），SVG 使用 currentColor。
+// model → lab 由 models.dev 的 commandcode provider 生成（scripts/gen-model-labs.mjs）。
+const MODEL_LABS: Record<string, string> = modelLabs
+// 命名空间前缀与 lab 名称不一致时的别名，用于映射表尚未覆盖的新模型。
+const LAB_ALIASES: Record<string, string> = {
+  qwen: "alibaba",
+  "zai-org": "zhipuai",
+  "z-ai": "zhipuai",
+  minimaxai: "minimax",
+}
+// 设置页“更新模型图标”取回的运行时映射，覆盖内置表；解析不到的模型用默认图标。
+const DEFAULT_LAB = "default"
+const MODEL_LABS_STORAGE_KEY = "modelLabs"
+let runtimeModelLabs: Record<string, string> = {}
+let modelLabsUpdatedAt: string | undefined
+
+function isStoredModelLabs(value: unknown): value is { map: Record<string, string>; updatedAt?: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false
+  const map = (value as { map?: unknown }).map
+  return typeof map === "object" && map !== null && !Array.isArray(map)
+}
+const LOGO_ALLOWED_TAGS = new Set([
+  "svg", "g", "path", "circle", "rect", "polygon", "polyline", "ellipse", "line",
+  "defs", "clipPath", "linearGradient", "radialGradient", "stop", "title",
+])
+const LOGO_ALLOWED_ATTRS = new Set([
+  "viewBox", "d", "fill", "fill-rule", "clip-rule", "stroke", "stroke-width", "stroke-linecap",
+  "stroke-linejoin", "cx", "cy", "r", "rx", "ry", "x", "y", "x1", "y1", "x2", "y2", "points",
+  "transform", "opacity", "fill-opacity", "stroke-opacity", "offset", "stop-color", "stop-opacity",
+  "gradientUnits", "gradientTransform", "clip-path", "clipPathUnits", "id",
+])
+// lab → 已净化的内联 SVG 标记；空字符串表示本次会话已确认不可用，不再请求。
+const logoSvgCache = new Map<string, string>()
+const logoInflight = new Set<string>()
+const logoHosts = new Map<string, HTMLElement[]>()
+let logoFlushQueued = false
+
+function labForModel(model: string): string | undefined {
+  const id = model.trim()
+  if (!id) return undefined
+  const lower = id.toLowerCase()
+  const mapped = runtimeModelLabs[id] ?? runtimeModelLabs[lower] ?? MODEL_LABS[id] ?? MODEL_LABS[lower]
+  if (mapped) return mapped
+  const slash = id.indexOf("/")
+  if (slash > 0) {
+    const prefix = id.slice(0, slash).toLowerCase()
+    return LAB_ALIASES[prefix] ?? prefix
+  }
+  if (/^claude/i.test(id)) return "anthropic"
+  if (/^gpt/i.test(id)) return "openai"
+  return undefined
+}
+
+// 只保留白名单标签/属性并去掉固定宽高（交给 CSS 控制），避免把远端标记原样注入。
+function sanitizeLogo(markup: string): string {
+  let parsed: Document
+  try {
+    parsed = new DOMParser().parseFromString(markup, "image/svg+xml")
+  } catch {
+    return ""
+  }
+  if (parsed.querySelector("parsererror")) return ""
+  const source = parsed.documentElement
+  if (!source || source.tagName.toLowerCase() !== "svg") return ""
+  const clean = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+  if (!copyLogoElement(source, clean)) return ""
+  if (!clean.getAttribute("viewBox")) {
+    const width = Number(source.getAttribute("width"))
+    const height = Number(source.getAttribute("height"))
+    if (width > 0 && height > 0) clean.setAttribute("viewBox", `0 0 ${width} ${height}`)
+  }
+  if (!clean.getAttribute("fill")) clean.setAttribute("fill", "currentColor")
+  return clean.outerHTML
+}
+
+function copyLogoElement(source: Element, target: Element): boolean {
+  for (const attribute of Array.from(source.attributes)) {
+    if (attribute.name === "width" || attribute.name === "height") continue
+    if (!LOGO_ALLOWED_ATTRS.has(attribute.name)) continue
+    target.setAttribute(attribute.name, attribute.value)
+  }
+  for (const child of Array.from(source.childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      target.append(document.createTextNode(child.textContent ?? ""))
+      continue
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) continue
+    const element = child as Element
+    if (!LOGO_ALLOWED_TAGS.has(element.tagName)) continue
+    const copy = document.createElementNS("http://www.w3.org/2000/svg", element.tagName)
+    if (!copyLogoElement(element, copy)) continue
+    target.append(copy)
+  }
+  return true
+}
+
+// 面板受宿主 CSP 限制无法直连外网，logo 经本地 service 代理获取（见 service/main.ts 的 /logos）。
+// 渲染时先把占位元素登记到 lab，微任务里合并成一次请求，再就地填充。
+function mountModelLogo(lab: string, host: HTMLElement) {
+  if (logoSvgCache.has(lab)) {
+    const markup = logoSvgCache.get(lab)!
+    if (markup) host.innerHTML = markup
+    return
+  }
+  const hosts = logoHosts.get(lab)
+  if (hosts) hosts.push(host)
+  else logoHosts.set(lab, [host])
+  if (!logoFlushQueued) {
+    logoFlushQueued = true
+    queueMicrotask(flushModelLogos)
+  }
+}
+
+function flushModelLogos() {
+  logoFlushQueued = false
+  const labs = [...logoHosts.keys()].filter((lab) => !logoSvgCache.has(lab) && !logoInflight.has(lab))
+  if (!labs.length) return
+  for (const lab of labs) logoInflight.add(lab)
+  void host.serviceRequest({
+    method: "POST",
+    path: "/logos",
+    body: JSON.stringify({ labs }),
+  }).then((result) => {
+    const payload = JSON.parse(result.body) as { logos?: Record<string, string> }
+    const logos = payload?.logos ?? {}
+    for (const lab of labs) applyModelLogo(lab, logos[lab])
+  }).catch(() => {
+    for (const lab of labs) applyModelLogo(lab, undefined)
+  }).finally(() => {
+    for (const lab of labs) logoInflight.delete(lab)
+  })
+}
+
+function applyModelLogo(lab: string, svg?: string) {
+  const markup = svg ? sanitizeLogo(svg) : ""
+  logoSvgCache.set(lab, markup)
+  const hosts = logoHosts.get(lab)
+  if (!hosts) return
+  logoHosts.delete(lab)
+  if (!markup) return
+  for (const node of hosts) {
+    if (node.isConnected) node.innerHTML = markup
+  }
+}
+
+function modelNameNode(model: string) {
+  const node = el("div", "model-name")
+  const label = model.trim()
+  if (label && label !== "—") {
+    const lab = labForModel(label) ?? DEFAULT_LAB
+    const logo = el("span", "model-logo")
+    logo.setAttribute("aria-hidden", "true")
+    if (lab !== DEFAULT_LAB) logo.title = lab
+    mountModelLogo(lab, logo)
+    node.append(logo)
+  }
+  node.append(el("span", "model-name-text", model))
+  return node
+}
+
 function logRow(entry: UsageLogEntry) {
   const row = el("article", "model-row")
 
@@ -830,7 +1051,7 @@ function logRow(entry: UsageLogEntry) {
   timingLine.append(durationItem)
   row.append(timingLine)
 
-  row.append(el("div", "model-name", entry.model ?? "—"))
+  row.append(modelNameNode(entry.model ?? "—"))
 
   const trace = el("div", "caption", `${t("traceId")} ${entry.traceId ?? "—"}`)
   if (entry.traceId) trace.title = entry.traceId
@@ -1299,7 +1520,8 @@ void Promise.all([
   host.storage.get("fontScale").catch(() => undefined),
   host.storage.get("refreshIntervalMinutes").catch(() => undefined),
   host.storage.get("logPageSize").catch(() => undefined),
-]).then(([storedLanguage, storedCookie, storedFontScale, storedRefreshInterval, storedLogPageSize]) => {
+  host.storage.get(MODEL_LABS_STORAGE_KEY).catch(() => undefined),
+]).then(([storedLanguage, storedCookie, storedFontScale, storedRefreshInterval, storedLogPageSize, storedModelLabs]) => {
   if (typeof storedFontScale === "number" && Number.isFinite(storedFontScale)) {
     fontScale = Math.max(0.8, Math.min(1.5, Math.round(storedFontScale * 20) / 20))
     root.style.setProperty("--text-scale", String(fontScale))
@@ -1311,6 +1533,10 @@ void Promise.all([
     )
   }
   if (storedLogPageSize !== undefined) logPageSize = clampLogPageSize(storedLogPageSize)
+  if (isStoredModelLabs(storedModelLabs)) {
+    runtimeModelLabs = storedModelLabs.map
+    modelLabsUpdatedAt = typeof storedModelLabs.updatedAt === "string" ? storedModelLabs.updatedAt : undefined
+  }
   if (typeof storedLanguage === "string") {
     savedLanguage = normalizeLanguage(storedLanguage)
     language = savedLanguage
