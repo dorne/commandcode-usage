@@ -44,7 +44,7 @@ p { font-size: calc(13px * var(--text-scale)); line-height: 1.5; }
 .window-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 6px; }
 .balance { font-size: calc(26px * var(--text-scale)); font-weight: 700; letter-spacing: -.03em; }
 .view-toggle.is-active { border-color: color-mix(in srgb, var(--oc-primary, #8c4edd) 55%, var(--oc-border, #888)); color: var(--oc-primary, #8c4edd); background: color-mix(in srgb, var(--oc-primary, #8c4edd) 10%, var(--oc-background, transparent)); }
-.model-card { display: grid; min-height: 0; flex: 1 1 auto; grid-template-rows: auto minmax(0, 1fr) auto; padding-right: 3px; }
+.model-card { display: grid; min-height: 0; flex: 0 1 auto; grid-template-rows: auto minmax(0, auto) auto; padding-right: 3px; }
 .model-card .card-heading { flex: 0 0 auto; }
 .model-list { display: grid; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .model-card > .caption { min-width: 0; overflow: visible; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; line-height: 1.4; }
