@@ -1,5 +1,5 @@
 import { connectHost, HostRequestError } from "@openchamber/sdk"
-import { applyHostReady } from "@openchamber/sdk/ui"
+import { applyHostReady, mountButton } from "@openchamber/sdk/ui"
 
 type WindowUsage = {
   label: string
@@ -74,7 +74,6 @@ const messages = {
     refreshing: "Refreshing…",
     settings: "Settings",
     save: "Save",
-    saving: "Saving…",
     back: "Back",
     sensitive: "Sensitive credential: never share this Cookie in chat or screenshots. It is stored until this extension is uninstalled.",
     plan: "Plan",
@@ -152,7 +151,6 @@ const messages = {
     refreshing: "刷新中…",
     settings: "设置",
     save: "保存",
-    saving: "保存中…",
     back: "返回",
     sensitive: "敏感凭据：请勿在聊天或截图中分享此 Cookie。Cookie 会保留至卸载此插件时删除。",
     plan: "套餐",
@@ -511,9 +509,9 @@ function iconButton(icon: "refresh" | "settings" | "chart" | "activity", label: 
       ]
     : icon === "settings" ? [
         ["path", { d: "M4 6h16M4 12h16M4 18h16" }],
-        ["circle", { cx: "8", cy: "6", r: "2", fill: "var(--oc-background, #fff)" }],
-        ["circle", { cx: "16", cy: "12", r: "2", fill: "var(--oc-background, #fff)" }],
-        ["circle", { cx: "10", cy: "18", r: "2", fill: "var(--oc-background, #fff)" }],
+        ["circle", { cx: "8", cy: "6", r: "2", fill: "var(--oc-bg, #fff)" }],
+        ["circle", { cx: "16", cy: "12", r: "2", fill: "var(--oc-bg, #fff)" }],
+        ["circle", { cx: "10", cy: "18", r: "2", fill: "var(--oc-bg, #fff)" }],
       ]
     : icon === "activity" ? [
         // 波形自身比其余图标更高更宽，按 0.8 缩放并补偿线宽，使外框与其他图标一致。
@@ -591,45 +589,46 @@ function showSettings(message?: string, error = false, preserveDraft = false) {
 
   if (message) root.append(el("div", `notice${error ? " error" : ""}`, message))
   const controls = el("div", "controls settings-actions")
-  const save = el("button", undefined, t("save"))
-  save.addEventListener("click", () => {
-    if (save.disabled) return
-    save.disabled = true
-    save.textContent = t("saving")
-    const previousCookie = cookie
-    const nextCookie = draftCookie.trim()
-    const cookieChanged = nextCookie !== previousCookie
-    cookie = nextCookie
-    language = draftLanguage
-    void host.storage.set("language", language).then(() => {
-      savedLanguage = language
-      settingsOpen = false
-      if (cookieChanged && cookie) void load()
-      else if (cookieChanged) {
-        currentUsage = undefined
-        void host.storage.delete("cookie").catch(() => {})
-        stopRefreshTimer()
-        showSettings()
-      } else if (currentUsage) {
-        render(currentUsage)
-        scheduleRefresh()
-      } else {
-        showSettings()
-      }
-    }).catch(() => {
-      showSettings(t("serviceError"), true)
-    })
-  })
-  controls.append(save)
   if (currentUsage) {
-    const back = el("button", "secondary", t("back"))
-    back.addEventListener("click", () => {
-      language = savedLanguage ?? hostLanguage
-      render(currentUsage!)
-      scheduleRefresh()
+    mountButton(controls, {
+      label: t("back"),
+      variant: "ghost",
+      onClick: () => {
+        language = savedLanguage ?? hostLanguage
+        render(currentUsage!)
+        scheduleRefresh()
+      },
     })
-    controls.append(back)
   }
+  const save = mountButton(controls, {
+    label: t("save"),
+    onClick: () => {
+      save.update({ loading: true })
+      const previousCookie = cookie
+      const nextCookie = draftCookie.trim()
+      const cookieChanged = nextCookie !== previousCookie
+      cookie = nextCookie
+      language = draftLanguage
+      void host.storage.set("language", language).then(() => {
+        savedLanguage = language
+        settingsOpen = false
+        if (cookieChanged && cookie) void load()
+        else if (cookieChanged) {
+          currentUsage = undefined
+          void host.storage.delete("cookie").catch(() => {})
+          stopRefreshTimer()
+          showSettings()
+        } else if (currentUsage) {
+          render(currentUsage)
+          scheduleRefresh()
+        } else {
+          showSettings()
+        }
+      }).catch(() => {
+        showSettings(t("serviceError"), true)
+      })
+    },
+  })
   root.append(controls)
 }
 
@@ -666,6 +665,7 @@ function actionButtons() {
   const actions = el("div", "card-actions")
   const refresh = iconButton("refresh", loading ? t("refreshing") : t("refresh"), "refresh-button")
   refresh.disabled = loading
+  refresh.setAttribute("aria-busy", String(loading))
   if (loading) refresh.classList.add("is-loading")
   refresh.addEventListener("click", () => activityOpen ? void openActivity(true) : void load())
   const byModel = iconButton("chart", showingByModel ? t("usageOverview") : t("byModel"), "view-toggle")
@@ -1022,16 +1022,18 @@ function refreshActivityFooter(footer: HTMLElement) {
   }
   if (activityError && activityNextCursor) {
     footer.append(el("span", "activity-footer-text is-error", activityError || t("activityLoadFailed")))
-    const retry = el("button", "secondary activity-retry", t("retry"))
-    retry.type = "button"
-    retry.addEventListener("click", () => {
-      if (activityLoading) return
-      activityLoadFailed = false
-      activityError = ""
-      refreshActivityFooter(footer)
-      void openActivity(false, activityNextCursor)
+    mountButton(footer, {
+      label: t("retry"),
+      variant: "outline",
+      size: "sm",
+      onClick: () => {
+        if (activityLoading) return
+        activityLoadFailed = false
+        activityError = ""
+        refreshActivityFooter(footer)
+        void openActivity(false, activityNextCursor)
+      },
     })
-    footer.append(retry)
     return
   }
   if (activityNextCursor) footer.append(el("span", "activity-footer-text", t("activityMore")))
@@ -1365,6 +1367,7 @@ function setRefreshState(active: boolean) {
   const refresh = root.querySelector<HTMLButtonElement>(".refresh-button")
   if (!refresh) return
   refresh.disabled = active
+  refresh.setAttribute("aria-busy", String(active))
   refresh.classList.toggle("is-loading", active)
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "commandcode-usage",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "OpenChamber extension for viewing CommandCode account usage",
   "scripts": {
     "build": "bun x openchamber-guest-bundle panel/main.ts panel/main.js && bun x openchamber-guest-bundle --node service/main.ts service/main.js"
