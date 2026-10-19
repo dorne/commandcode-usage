@@ -20,15 +20,14 @@
 - 显示 Token 总数、输入/输出 Token 明细、运行总次数和平均每次成本。
 - 按消耗额度占比从高到低列出各模型用量，包括 Token 总数及输入/输出明细、请求次数、失败次数和消耗额度。
 - 首页提供“活动记录”入口，使用与 Usage breakdown 相同的表格布局列出模型调用记录；默认每次加载 10 条，滚动到底后继续加载。字段包括时间、全部输入、输出 Token、耗时、模型、模式、状态、费用和追踪 ID。
-- 在 **用量明细** 和 **活动记录** 的模型名前显示厂商图标。图标来自 models.dev（`/logos/labs/{lab}.svg`），通过内置的 `模型 → lab` 映射匹配；解析不到时用 models.dev 的默认图标。
-- 设置页提供「更新模型图标」：从 models.dev 获取最新的 `模型 → lab` 映射，让此版本之后新增的模型也有图标；结果保存在插件存储中。
+- 在 **用量明细** 和 **活动记录** 的模型名前显示厂商图标。图标来自 models.dev（`/logos/labs/{lab}.svg`），按命名规则匹配（厂商前缀、已知别名、`claude*`/`gpt*`）；解析不到时用 models.dev 的默认图标。
 - 可显示订阅套餐及加购额度（接口有返回时）；`Active` 状态不显示。
 - 支持手动刷新；面板打开时会自动刷新。可在设置中按 1 分钟步长调整间隔，范围为 1–60 分钟，默认 5 分钟。
 - 数字变化时在裁切后的固定高度行框内使用垂直滑动和渐隐效果，进度条平滑过渡；动画遵循系统的减少动态效果设置。
 - 可在面板设置中调整字号、自动刷新间隔和活动记录每页数量，设置会自动保存；字号每次按 5% 调整，活动记录每页数量为 1–50 的手填值，默认 10。
 - 首次打开面板时会自动进入设置，方便立即填写 Cookie。
 - 支持英文和简体中文界面。
-- Cookie、语言、字号、自动刷新间隔、活动记录每页数量以及更新后的模型映射保存在 OpenChamber 的插件专属存储中，重新打开面板后仍然有效。
+- Cookie、语言、字号、自动刷新间隔和活动记录每页数量保存在 OpenChamber 的插件专属存储中，重新打开面板后仍然有效。
 
 ## 环境要求
 
@@ -61,12 +60,6 @@ bun install
 bun run build
 ```
 
-模型图标使用内置的 `panel/model-labs.json`（CommandCode 模型 id → models.dev lab）。`bun run build` 会先自动重新生成（`prebuild`）；拉不到 models.dev 时保留现有文件。也可单独重新生成：
-
-```sh
-bun run gen:model-labs
-```
-
 Windows 用户在 PowerShell 中运行 `./pack-plugin.ps1`，即可在当前目录生成 `commandcode-usage.zip`。压缩包包含安装和运行所需文件及 MIT `LICENSE`，不包含 README、TypeScript 源码或 `node_modules`。打包脚本会检查必需文件和 ZIP 结构；打包前请确保构建已完成，使 `panel/main.js` 和 `service/main.js` 为最新版本。
 
 如果 OpenChamber 提示无法解析或安装 ZIP，请确认 ZIP 是从插件目录生成的，且根目录直接包含 `package.json`、`panel/index.html`、`panel/main.js`、清单中声明的图标以及 `service/main.js`。清单还必须带有有效的版本号。重新构建并生成 ZIP；不要只改扩展名，也不要手动把整个项目目录嵌套进压缩包。
@@ -78,7 +71,7 @@ Cookie 是可代表你访问已登录 CommandCode 账户的**敏感凭据**。�
 - 插件将 Cookie 保存在 OpenChamber 的插件专属存储空间中；卸载插件时，该插件的存储空间会被删除。
 - 本地服务会筛选 Cookie，只转发识别到的 CommandCode 会话字段（`session_token` 和 `session_data`），不会主动记录或持久化该凭据；Cookie 本身仍保存在 OpenChamber 插件专属存储中，直到被修改或插件卸载。
 - 用量请求只发送至 `https://api.commandcode.ai`。本地服务仅监听 `127.0.0.1`，并使用 OpenChamber 提供的服务令牌验证请求。
-- 为绘制模型图标，本地服务会代面板向 `https://models.dev/logos/...` 请求 SVG 文件（沙箱内的面板无法直接访问网络）；点击「更新模型图标」时还会请求 `https://models.dev/api.json` 刷新模型到厂商的映射。这些请求只携带模型/厂商名称，不包含 Cookie 或用量数据。
+- 为绘制模型图标，本地服务会代面板向 `https://models.dev/logos/...` 请求 SVG 文件（沙箱内的面板无法直接访问网络）。这些请求只携带厂商名称，不包含 Cookie 或用量数据。
 - 插件不会将 Cookie 或用量数据发送给本项目维护者，也不集成第三方分析服务。
 - 插件本地服务会在 OpenChamber 授予的权限范围内运行。批准前请阅读源码，尤其是在安装他人提供的构建版本时。
 
@@ -92,7 +85,6 @@ Cookie 是可代表你访问已登录 CommandCode 账户的**敏感凭据**。�
 - `GET https://api.commandcode.ai/internal/usage/by-model`
 - `GET https://api.commandcode.ai/internal/usage?limit=10`（滚动分页时携带 `cursor`；`limit` 默认 10，可在设置中调整为 1–50）
 - `GET https://models.dev/logos/labs/{lab}.svg`（模型名前的厂商图标）
-- `GET https://models.dev/api.json`（仅在点击「更新模型图标」时请求，用于刷新 `模型 → lab` 映射）
 
 这些是**未公开文档的内部接口**，不是稳定的公开 API。CommandCode 可能随时变更或移除接口，因此用量查询可能暂时或永久失效。面板只展示接口实际返回的数据。
 

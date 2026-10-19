@@ -178,9 +178,9 @@ function parseByModel(body) {
   } : undefined;
   return { models, ...modelWindow ? { window: modelWindow } : {} };
 }
-var LOG_LIMIT = 10;
-var MIN_LOG_LIMIT = 1;
-var MAX_LOG_LIMIT = 50;
+var ACTIVITY_LIMIT = 10;
+var MIN_ACTIVITY_LIMIT = 1;
+var MAX_ACTIVITY_LIMIT = 50;
 var MODE_MODEL_LABELS = {
   learning: "taste-1",
   "web-search": "web-search",
@@ -221,23 +221,23 @@ function parseLogEntry(item) {
   }
   return entry;
 }
-function parseUsageLog(body) {
+function parseActivity(body) {
   if (!isRecord(body) || !Array.isArray(body.usages))
     return [];
   return body.usages.map(parseLogEntry).filter((entry) => entry !== undefined);
 }
-async function fetchUsageLog(rawCookie, rawCursor, rawLimit) {
+async function fetchActivity(rawCookie, rawCursor, rawLimit) {
   const cookie = safeCookie(rawCookie);
   if (!cookie)
     throw new Error("No valid CommandCode session Cookie was found. Paste the Cookie request header.");
   const cursor = typeof rawCursor === "string" && rawCursor.length <= 2000 ? rawCursor : "";
   const requested = number(rawLimit);
-  const limit = requested === undefined ? LOG_LIMIT : Math.max(MIN_LOG_LIMIT, Math.min(MAX_LOG_LIMIT, Math.round(requested)));
+  const limit = requested === undefined ? ACTIVITY_LIMIT : Math.max(MIN_ACTIVITY_LIMIT, Math.min(MAX_ACTIVITY_LIMIT, Math.round(requested)));
   const query = new URLSearchParams({ limit: String(limit) });
   if (cursor)
     query.set("cursor", cursor);
   const body = await fetchJson(`/internal/usage?${query}`, cookie, 12000);
-  const entries = parseUsageLog(body);
+  const entries = parseActivity(body);
   const nextCursor = isRecord(body) && typeof body.nextCursor === "string" && body.nextCursor ? body.nextCursor : undefined;
   return { entries, nextCursor };
 }
@@ -312,12 +312,10 @@ async function fetchUsage(rawCookie) {
   };
 }
 var MODELS_DEV_ORIGIN = "https://models.dev";
-var MODELS_DEV_API = `${MODELS_DEV_ORIGIN}/api.json`;
 var DEFAULT_LAB = "default";
 var LOGO_LAB_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 var LOGO_MAX_BYTES = 24000;
 var LOGO_TIMEOUT_MS = 8000;
-var MODEL_LABS_TIMEOUT_MS = 12000;
 var MAX_LOGOS_PER_REQUEST = 24;
 var logoCache = new Map;
 async function fetchLogo(lab) {
@@ -357,44 +355,6 @@ async function fetchLogos(rawLabs) {
   }
   return logos;
 }
-function extractModelLabs(catalog) {
-  if (!isRecord(catalog) || !isRecord(catalog.commandcode))
-    return {};
-  const models = catalog.commandcode.models;
-  if (!isRecord(models))
-    return {};
-  const map = {};
-  for (const [id, model] of Object.entries(models)) {
-    const canonical = isRecord(model) && typeof model.canonical_model_id === "string" ? model.canonical_model_id : "";
-    const slash = canonical.indexOf("/");
-    if (slash > 0)
-      map[id] = canonical.slice(0, slash);
-  }
-  return map;
-}
-async function fetchModelLabs() {
-  const controller = new AbortController;
-  const timer = setTimeout(() => controller.abort(), MODEL_LABS_TIMEOUT_MS);
-  try {
-    const response = await fetch(MODELS_DEV_API, {
-      signal: controller.signal,
-      redirect: "error",
-      headers: { Accept: "application/json", "User-Agent": USER_AGENT }
-    });
-    if (!response.ok)
-      throw new Error(`models.dev returned HTTP ${response.status}`);
-    const map = extractModelLabs(await response.json());
-    if (!Object.keys(map).length)
-      throw new Error("models.dev returned no CommandCode models");
-    return { map, updatedAt: new Date().toISOString() };
-  } catch (error) {
-    if (controller.signal.aborted)
-      throw new Error("models.dev request timed out");
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-}
 function json(res, status, body) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
   res.end(JSON.stringify(body));
@@ -409,7 +369,7 @@ var server = http.createServer((req, res) => {
     json(res, 200, { ok: true });
     return;
   }
-  if (req.method !== "POST" || url.pathname !== "/usage" && url.pathname !== "/usage-log" && url.pathname !== "/logos" && url.pathname !== "/model-labs") {
+  if (req.method !== "POST" || url.pathname !== "/usage" && url.pathname !== "/activity" && url.pathname !== "/logos") {
     json(res, 404, { error: "Not found" });
     return;
   }
@@ -431,7 +391,7 @@ var server = http.createServer((req, res) => {
       return;
     }
     const cookie = isRecord(input) ? input.cookie : undefined;
-    const respond = route === "/logos" ? fetchLogos(isRecord(input) ? input.labs : undefined).then((logos) => json(res, 200, { logos })) : route === "/model-labs" ? fetchModelLabs().then((labs) => json(res, 200, labs)) : route === "/usage-log" ? fetchUsageLog(cookie, isRecord(input) ? input.cursor : undefined, isRecord(input) ? input.limit : undefined).then((page) => json(res, 200, page)) : fetchUsage(cookie).then((usage) => json(res, 200, { usage }));
+    const respond = route === "/logos" ? fetchLogos(isRecord(input) ? input.labs : undefined).then((logos) => json(res, 200, { logos })) : route === "/activity" ? fetchActivity(cookie, isRecord(input) ? input.cursor : undefined, isRecord(input) ? input.limit : undefined).then((page) => json(res, 200, page)) : fetchUsage(cookie).then((usage) => json(res, 200, { usage }));
     respond.catch((error) => {
       const message = error instanceof Error ? error.message : "Usage request failed";
       const status = /401|403|rejected/i.test(message) ? 401 : /rate limited/i.test(message) ? 429 : 502;

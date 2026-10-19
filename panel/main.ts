@@ -1,6 +1,5 @@
 import { connectHost, HostRequestError } from "@openchamber/sdk"
 import { applyHostReady } from "@openchamber/sdk/ui"
-import modelLabs from "./model-labs.json"
 
 type WindowUsage = {
   label: string
@@ -63,9 +62,9 @@ type Language = "en" | "zh-CN"
 const DEFAULT_REFRESH_INTERVAL_MINUTES = 5
 const MIN_REFRESH_INTERVAL_MINUTES = 1
 const MAX_REFRESH_INTERVAL_MINUTES = 60
-const DEFAULT_LOG_PAGE_SIZE = 10
-const MIN_LOG_PAGE_SIZE = 1
-const MAX_LOG_PAGE_SIZE = 50
+const DEFAULT_ACTIVITY_PAGE_SIZE = 10
+const MIN_ACTIVITY_PAGE_SIZE = 1
+const MAX_ACTIVITY_PAGE_SIZE = 50
 
 const messages = {
   en: {
@@ -129,20 +128,14 @@ const messages = {
     modelSpendShare: "of usage",
     modelWindow: "Window",
     byModelUnavailable: "Usage breakdown is unavailable.",
-    log: "Activity",
-    logEmpty: "No requests have been recorded yet.",
-    logLoading: "Loading…",
-    logMore: "Scroll to load more",
-    logLoadFailed: "Could not load more. Check your connection and try again.",
-    logPageSize: "Activity page size",
-    logPageSizeHint: (min: number, max: number, fallback: number) => `Activity entries requested per page (${min}–${max}, default ${fallback}).`,
+    activity: "Activity",
+    activityEmpty: "No requests have been recorded yet.",
+    activityLoading: "Loading…",
+    activityMore: "Scroll to load more",
+    activityLoadFailed: "Could not load more. Check your connection and try again.",
+    activityPageSize: "Activity page size",
+    activityPageSizeHint: (min: number, max: number, fallback: number) => `Activity entries requested per page (${min}–${max}, default ${fallback}).`,
     retry: "Retry",
-    modelIcons: "Model icons",
-    updateModelIcons: "Update model icons",
-    updatingModelIcons: "Updating…",
-    modelIconsHint: "Fetch the latest model → provider mapping from models.dev so models added after this version still get logos.",
-    modelIconsNeverUpdated: "Not updated yet",
-    modelIconsFailed: "Could not update model icons. Check your connection and try again.",
     timing: "Duration",
     mode: "Mode",
     status: "Status",
@@ -213,20 +206,14 @@ const messages = {
     modelSpendShare: "占比",
     modelWindow: "统计区间",
     byModelUnavailable: "暂时无法获取用量明细。",
-    log: "活动记录",
-    logEmpty: "还没有记录到任何请求。",
-    logLoading: "正在加载…",
-    logMore: "上滑加载更多",
-    logLoadFailed: "加载更多失败，请检查网络后重试。",
-    logPageSize: "活动记录每页数量",
-    logPageSizeHint: (min: number, max: number, fallback: number) => `活动记录每次请求获取的条数，范围 ${min}–${max}，默认 ${fallback}。`,
+    activity: "活动记录",
+    activityEmpty: "还没有记录到任何请求。",
+    activityLoading: "正在加载…",
+    activityMore: "上滑加载更多",
+    activityLoadFailed: "加载更多失败，请检查网络后重试。",
+    activityPageSize: "活动记录每页数量",
+    activityPageSizeHint: (min: number, max: number, fallback: number) => `活动记录每次请求获取的条数，范围 ${min}–${max}，默认 ${fallback}。`,
     retry: "重试",
-    modelIcons: "模型图标",
-    updateModelIcons: "更新模型图标",
-    updatingModelIcons: "更新中…",
-    modelIconsHint: "从 models.dev 获取最新的模型到厂商映射，让此版本之后新增的模型也有图标。",
-    modelIconsNeverUpdated: "尚未更新",
-    modelIconsFailed: "更新模型图标失败，请检查网络后重试。",
     timing: "耗时",
     mode: "模式",
     status: "状态",
@@ -254,22 +241,22 @@ let hostLanguage: Language = "en"
 let savedLanguage: Language | undefined
 let settingsOpen = false
 let showingByModel = false
-let logOpen = false
-let logEntries: UsageLogEntry[] | undefined
-let logNextCursor: string | undefined
-let logLoading = false
-let logError = ""
+let activityOpen = false
+let activityEntries: UsageLogEntry[] | undefined
+let activityNextCursor: string | undefined
+let activityLoading = false
+let activityError = ""
 // 分页加载失败后暂停自动加载，避免网络恢复前反复触发，等待手动重试。
-let logLoadFailed = false
+let activityLoadFailed = false
 let draftCookie = ""
 let draftLanguage: Language = "en"
 let fontScale = 1
 let refreshIntervalMinutes = DEFAULT_REFRESH_INTERVAL_MINUTES
-let logPageSize = DEFAULT_LOG_PAGE_SIZE
+let activityPageSize = DEFAULT_ACTIVITY_PAGE_SIZE
 
-function showView(next: "overview" | "model" | "log") {
+function showView(next: "overview" | "model" | "activity") {
   showingByModel = next === "model"
-  logOpen = next === "log"
+  activityOpen = next === "activity"
 }
 
 function normalizeLanguage(value: unknown): Language {
@@ -342,7 +329,7 @@ function stopRefreshTimer() {
 
 function scheduleRefresh() {
   stopRefreshTimer()
-  if (!cookie || !currentUsage || settingsOpen || logOpen) return
+  if (!cookie || !currentUsage || settingsOpen || activityOpen) return
   nextRefreshAt = Date.now() + refreshIntervalMinutes * 60 * 1000
   refreshTimer = setTimeout(() => {
     refreshTimer = undefined
@@ -365,9 +352,9 @@ function resumeAfterPageShow() {
   void host.storage.get("cookie").then((storedCookie) => {
     if (typeof storedCookie !== "string" || !storedCookie.trim()) return
     cookie = storedCookie
-    if (!settingsOpen && !logOpen) void load()
+    if (!settingsOpen && !activityOpen) void load()
   }).catch(() => {
-    if (!settingsOpen && !logOpen) scheduleRefresh()
+    if (!settingsOpen && !activityOpen) scheduleRefresh()
   })
 }
 
@@ -394,93 +381,46 @@ function refreshIntervalField() {
   return field
 }
 
-function clampLogPageSize(value: unknown) {
+function clampActivityPageSize(value: unknown) {
   const numeric = typeof value === "number" ? value : Number(value)
-  if (!Number.isFinite(numeric)) return DEFAULT_LOG_PAGE_SIZE
-  return Math.max(MIN_LOG_PAGE_SIZE, Math.min(MAX_LOG_PAGE_SIZE, Math.round(numeric)))
+  if (!Number.isFinite(numeric)) return DEFAULT_ACTIVITY_PAGE_SIZE
+  return Math.max(MIN_ACTIVITY_PAGE_SIZE, Math.min(MAX_ACTIVITY_PAGE_SIZE, Math.round(numeric)))
 }
 
-function setLogPageSize(value: unknown, persist = true) {
-  logPageSize = clampLogPageSize(value)
-  if (persist) void host.storage.set("logPageSize", logPageSize).catch(() => {})
+function setActivityPageSize(value: unknown, persist = true) {
+  activityPageSize = clampActivityPageSize(value)
+  if (persist) void host.storage.set("activityPageSize", activityPageSize).catch(() => {})
   const input = root.querySelector<HTMLInputElement>(".page-size-input")
-  if (input && input.value !== String(logPageSize)) input.value = String(logPageSize)
+  if (input && input.value !== String(activityPageSize)) input.value = String(activityPageSize)
 }
 
 // 手动填写每次请求日志接口获取的条数；输入过程中只在合法范围内即时保存，失焦时统一纠正。
-function logPageSizeField() {
+function activityPageSizeField() {
   const block = el("div", "setting-block")
   const field = el("div", "setting-row")
   const input = document.createElement("input")
   input.type = "number"
   input.className = "number-input page-size-input"
   input.inputMode = "numeric"
-  input.min = String(MIN_LOG_PAGE_SIZE)
-  input.max = String(MAX_LOG_PAGE_SIZE)
+  input.min = String(MIN_ACTIVITY_PAGE_SIZE)
+  input.max = String(MAX_ACTIVITY_PAGE_SIZE)
   input.step = "1"
-  input.value = String(logPageSize)
-  input.setAttribute("aria-label", t("logPageSize"))
-  input.title = t("logPageSizeHint")(MIN_LOG_PAGE_SIZE, MAX_LOG_PAGE_SIZE, DEFAULT_LOG_PAGE_SIZE)
+  input.value = String(activityPageSize)
+  input.setAttribute("aria-label", t("activityPageSize"))
+  input.title = t("activityPageSizeHint")(MIN_ACTIVITY_PAGE_SIZE, MAX_ACTIVITY_PAGE_SIZE, DEFAULT_ACTIVITY_PAGE_SIZE)
   input.addEventListener("input", () => {
     const value = Number(input.value)
-    if (input.value.trim() && Number.isFinite(value) && value >= MIN_LOG_PAGE_SIZE && value <= MAX_LOG_PAGE_SIZE) {
-      setLogPageSize(value, false)
+    if (input.value.trim() && Number.isFinite(value) && value >= MIN_ACTIVITY_PAGE_SIZE && value <= MAX_ACTIVITY_PAGE_SIZE) {
+      setActivityPageSize(value, false)
     }
   })
-  input.addEventListener("change", () => setLogPageSize(input.value.trim() ? Number(input.value) : DEFAULT_LOG_PAGE_SIZE))
-  input.addEventListener("blur", () => { input.value = String(logPageSize) })
+  input.addEventListener("change", () => setActivityPageSize(input.value.trim() ? Number(input.value) : DEFAULT_ACTIVITY_PAGE_SIZE))
+  input.addEventListener("blur", () => { input.value = String(activityPageSize) })
   const control = el("div", "number-field")
   control.append(input)
-  field.append(el("span", "setting-label", t("logPageSize")), control)
-  block.append(field, el("p", "caption setting-hint", t("logPageSizeHint")(MIN_LOG_PAGE_SIZE, MAX_LOG_PAGE_SIZE, DEFAULT_LOG_PAGE_SIZE)))
+  field.append(el("span", "setting-label", t("activityPageSize")), control)
+  block.append(field, el("p", "caption setting-hint", t("activityPageSizeHint")(MIN_ACTIVITY_PAGE_SIZE, MAX_ACTIVITY_PAGE_SIZE, DEFAULT_ACTIVITY_PAGE_SIZE)))
   return block
-}
-
-// 设置页：从 models.dev 手动更新运行时映射表，让此版本之后新增的模型也能显示图标。
-function modelIconsField() {
-  const block = el("div", "setting-block")
-  const field = el("div", "setting-row")
-  const button = el("button", "secondary update-model-icons", t("updateModelIcons"))
-  button.type = "button"
-  const status = el("p", "caption setting-hint model-icons-status", modelIconsStatus())
-  button.addEventListener("click", () => { void updateModelIcons(button, status) })
-  field.append(el("span", "setting-label", t("modelIcons")), button)
-  block.append(field, el("p", "caption setting-hint", t("modelIconsHint")), status)
-  return block
-}
-
-function modelIconsStatus() {
-  const updatedAt = modelLabsUpdatedAt ? dateLabel(modelLabsUpdatedAt) : undefined
-  return updatedAt ? `${t("updated")}: ${updatedAt}` : t("modelIconsNeverUpdated")
-}
-
-async function updateModelIcons(button: HTMLButtonElement, status: HTMLElement) {
-  if (button.disabled) return
-  const original = button.textContent ?? t("updateModelIcons")
-  button.disabled = true
-  button.textContent = t("updatingModelIcons")
-  status.classList.remove("is-error")
-  status.textContent = t("updatingModelIcons")
-  try {
-    const result = await host.serviceRequest({ method: "POST", path: "/model-labs", body: "{}" })
-    const payload = JSON.parse(result.body) as { map?: Record<string, string>; updatedAt?: string }
-    if (result.status < 200 || result.status >= 300 || !payload?.map || !Object.keys(payload.map).length) {
-      throw new Error(t("localError")(result.status))
-    }
-    runtimeModelLabs = payload.map
-    modelLabsUpdatedAt = payload.updatedAt ?? new Date().toISOString()
-    await host.storage.set(MODEL_LABS_STORAGE_KEY, { map: runtimeModelLabs, updatedAt: modelLabsUpdatedAt }).catch(() => {})
-    // 映射可能变化，清掉图标缓存让新的 lab 图标在下次渲染时重新获取。
-    logoSvgCache.clear()
-    logoHosts.clear()
-    status.textContent = modelIconsStatus()
-  } catch {
-    status.classList.add("is-error")
-    status.textContent = t("modelIconsFailed")
-  } finally {
-    button.disabled = false
-    button.textContent = original
-  }
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, value?: string) {
@@ -647,8 +587,7 @@ function showSettings(message?: string, error = false, preserveDraft = false) {
   root.append(languagePicker(() => showSettings(message, error, true)))
   root.append(textSizeField())
   root.append(refreshIntervalField())
-  root.append(logPageSizeField())
-  root.append(modelIconsField())
+  root.append(activityPageSizeField())
 
   if (message) root.append(el("div", `notice${error ? " error" : ""}`, message))
   const controls = el("div", "controls settings-actions")
@@ -728,7 +667,7 @@ function actionButtons() {
   const refresh = iconButton("refresh", loading ? t("refreshing") : t("refresh"), "refresh-button")
   refresh.disabled = loading
   if (loading) refresh.classList.add("is-loading")
-  refresh.addEventListener("click", () => logOpen ? void openLog(true) : void load())
+  refresh.addEventListener("click", () => activityOpen ? void openActivity(true) : void load())
   const byModel = iconButton("chart", showingByModel ? t("usageOverview") : t("byModel"), "view-toggle")
   byModel.setAttribute("aria-pressed", String(showingByModel))
   byModel.classList.toggle("is-active", showingByModel)
@@ -736,16 +675,16 @@ function actionButtons() {
     showView(showingByModel ? "overview" : "model")
     if (currentUsage) render(currentUsage)
   })
-  const activity = iconButton("activity", t("log"), "view-toggle")
-  activity.classList.toggle("is-active", logOpen)
-  activity.setAttribute("aria-pressed", String(logOpen))
+  const activity = iconButton("activity", t("activity"), "view-toggle")
+  activity.classList.toggle("is-active", activityOpen)
+  activity.setAttribute("aria-pressed", String(activityOpen))
   activity.addEventListener("click", () => {
-    if (logOpen) {
+    if (activityOpen) {
       showView("overview")
       if (currentUsage) render(currentUsage)
     } else {
-      showView("log")
-      void openLog()
+      showView("activity")
+      void openActivity()
     }
   })
   const settings = iconButton("settings", t("settings"), "secondary")
@@ -852,12 +791,12 @@ function dateLabel(value?: string) {
   }).format(date)
 }
 
-function logDuration(value?: number) {
+function activityDuration(value?: number) {
   if (value === undefined || !Number.isFinite(value)) return "—"
   return `${(value / 1000).toFixed(3)}s`
 }
 
-function logCost(value?: number) {
+function activityCost(value?: number) {
   if (value === undefined || !Number.isFinite(value)) return "—"
   const fixed = value.toFixed(4)
   if (value > 0 && Number(fixed) !== value) {
@@ -867,7 +806,7 @@ function logCost(value?: number) {
   return `$${fixed}`
 }
 
-function logStatusBadge(entry: UsageLogEntry) {
+function activityStatusBadge(entry: UsageLogEntry) {
   const status = entry.status ?? "unknown"
   const labels: Record<string, string> = {
     pending: t("statusPending"),
@@ -881,26 +820,14 @@ function logStatusBadge(entry: UsageLogEntry) {
 }
 
 // 模型图标：models.dev 按厂商 lab 提供 logo（/logos/labs/{lab}.svg），SVG 使用 currentColor。
-// model → lab 由 models.dev 的 commandcode provider 生成（scripts/gen-model-labs.mjs）。
-const MODEL_LABS: Record<string, string> = modelLabs
-// 命名空间前缀与 lab 名称不一致时的别名，用于映射表尚未覆盖的新模型。
+// lab 由模型名的命名规则推断（见 labForModel）；解析不到的用默认图标。
 const LAB_ALIASES: Record<string, string> = {
   qwen: "alibaba",
   "zai-org": "zhipuai",
   "z-ai": "zhipuai",
   minimaxai: "minimax",
 }
-// 设置页“更新模型图标”取回的运行时映射，覆盖内置表；解析不到的模型用默认图标。
 const DEFAULT_LAB = "default"
-const MODEL_LABS_STORAGE_KEY = "modelLabs"
-let runtimeModelLabs: Record<string, string> = {}
-let modelLabsUpdatedAt: string | undefined
-
-function isStoredModelLabs(value: unknown): value is { map: Record<string, string>; updatedAt?: string } {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false
-  const map = (value as { map?: unknown }).map
-  return typeof map === "object" && map !== null && !Array.isArray(map)
-}
 const LOGO_ALLOWED_TAGS = new Set([
   "svg", "g", "path", "circle", "rect", "polygon", "polyline", "ellipse", "line",
   "defs", "clipPath", "linearGradient", "radialGradient", "stop", "title",
@@ -920,9 +847,6 @@ let logoFlushQueued = false
 function labForModel(model: string): string | undefined {
   const id = model.trim()
   if (!id) return undefined
-  const lower = id.toLowerCase()
-  const mapped = runtimeModelLabs[id] ?? runtimeModelLabs[lower] ?? MODEL_LABS[id] ?? MODEL_LABS[lower]
-  if (mapped) return mapped
   const slash = id.indexOf("/")
   if (slash > 0) {
     const prefix = id.slice(0, slash).toLowerCase()
@@ -1040,14 +964,14 @@ function modelNameNode(model: string) {
   return node
 }
 
-function logRow(entry: UsageLogEntry) {
+function activityRow(entry: UsageLogEntry) {
   const row = el("article", "model-row")
 
   // 时间 / 耗时 置于模型名上方，字号与模型名一致但不加粗，Time 与 Duration 结构保持一致
-  const timingLine = el("div", "model-token-line log-timing")
-  timingLine.append(el("span", "log-value log-time", dateLabel(entry.createdAt) ?? "—"))
+  const timingLine = el("div", "model-token-line activity-timing")
+  timingLine.append(el("span", "activity-value activity-time", dateLabel(entry.createdAt) ?? "—"))
   const durationItem = el("span")
-  durationItem.append(el("span", "muted", t("timing")), " ", el("span", "log-value", logDuration(entry.durationTotal)))
+  durationItem.append(el("span", "muted", t("timing")), " ", el("span", "activity-value", activityDuration(entry.durationTotal)))
   timingLine.append(durationItem)
   row.append(timingLine)
 
@@ -1066,161 +990,161 @@ function logRow(entry: UsageLogEntry) {
   // 模式 / 状态 / 费用 单独一行
   const requestLine = el("div", "model-request-line")
   const meta = el("span", "model-requests", `${t("mode")} ${entry.mode ?? "—"} · ${t("status")} `)
-  meta.append(logStatusBadge(entry))
+  meta.append(activityStatusBadge(entry))
   requestLine.append(meta)
   const spend = el("span", "model-spend")
-  spend.append(el("strong", "model-credits", logCost(entry.cost)))
+  spend.append(el("strong", "model-credits", activityCost(entry.cost)))
   requestLine.append(spend)
   row.append(requestLine)
   return row
 }
 
-function logListScroller() {
+function activityListScroller() {
   return root.querySelector<HTMLElement>(".model-list")
 }
 
 // 列表尾部的状态区：加载中 / 加载失败 / 上滑提示。高度固定，避免状态切换时撑动滚动位置。
-function logFooter() {
-  const footer = el("div", "log-footer")
-  refreshLogFooter(footer)
+function activityFooter() {
+  const footer = el("div", "activity-footer")
+  refreshActivityFooter(footer)
   return footer
 }
 
-function refreshLogFooter(footer: HTMLElement) {
+function refreshActivityFooter(footer: HTMLElement) {
   footer.replaceChildren()
   // 空状态（首次加载 / 无数据）由列表主体呈现文案，尾部不重复。
-  if (!logEntries?.length) return
-  if (logLoading) {
-    const text = el("span", "log-footer-text", t("logLoading"))
+  if (!activityEntries?.length) return
+  if (activityLoading) {
+    const text = el("span", "activity-footer-text", t("activityLoading"))
     text.setAttribute("role", "status")
     footer.append(text)
     return
   }
-  if (logError && logNextCursor) {
-    footer.append(el("span", "log-footer-text is-error", logError || t("logLoadFailed")))
-    const retry = el("button", "secondary log-retry", t("retry"))
+  if (activityError && activityNextCursor) {
+    footer.append(el("span", "activity-footer-text is-error", activityError || t("activityLoadFailed")))
+    const retry = el("button", "secondary activity-retry", t("retry"))
     retry.type = "button"
     retry.addEventListener("click", () => {
-      if (logLoading) return
-      logLoadFailed = false
-      logError = ""
-      refreshLogFooter(footer)
-      void openLog(false, logNextCursor)
+      if (activityLoading) return
+      activityLoadFailed = false
+      activityError = ""
+      refreshActivityFooter(footer)
+      void openActivity(false, activityNextCursor)
     })
     footer.append(retry)
     return
   }
-  if (logNextCursor) footer.append(el("span", "log-footer-text", t("logMore")))
+  if (activityNextCursor) footer.append(el("span", "activity-footer-text", t("activityMore")))
 }
 
 // 分页追加时把新行插到尾部状态区之前，不重建整页，滚动位置保持不变。
-function appendLogRows(list: HTMLElement, entries: UsageLogEntry[]) {
-  const footer = list.querySelector(".log-footer")
+function appendActivityRows(list: HTMLElement, entries: UsageLogEntry[]) {
+  const footer = list.querySelector(".activity-footer")
   const fragment = document.createDocumentFragment()
-  for (const entry of entries) fragment.append(logRow(entry))
+  for (const entry of entries) fragment.append(activityRow(entry))
   if (footer) list.insertBefore(fragment, footer)
   else list.append(fragment)
 }
 
-function logList() {
+function activityList() {
   const list = el("div", "model-list")
   list.tabIndex = 0
-  list.setAttribute("aria-label", t("log"))
-  const hasEntries = Boolean(logEntries?.length)
+  list.setAttribute("aria-label", t("activity"))
+  const hasEntries = Boolean(activityEntries?.length)
   if (!hasEntries) {
-    list.append(el("p", "summary-unavailable", logError || (logLoading ? t("logLoading") : t("logEmpty"))))
+    list.append(el("p", "summary-unavailable", activityError || (activityLoading ? t("activityLoading") : t("activityEmpty"))))
   } else {
-    for (const entry of logEntries!) list.append(logRow(entry))
+    for (const entry of activityEntries!) list.append(activityRow(entry))
   }
-  list.append(logFooter())
+  list.append(activityFooter())
   return list
 }
 
 // 列表尚未填满可视区域时继续补足，填充首屏；每次只追加一页，且串行请求，避免请求风暴。
-function maybeAutoFillLog(list: HTMLElement) {
-  if (!logOpen || logLoading || logLoadFailed || !logNextCursor) return
+function maybeAutoFillActivity(list: HTMLElement) {
+  if (!activityOpen || activityLoading || activityLoadFailed || !activityNextCursor) return
   requestAnimationFrame(() => {
-    if (!list.isConnected || !logOpen || logLoading || logLoadFailed || !logNextCursor) return
+    if (!list.isConnected || !activityOpen || activityLoading || activityLoadFailed || !activityNextCursor) return
     if (list.scrollHeight - list.clientHeight > 2) return
-    void openLog(false, logNextCursor)
+    void openActivity(false, activityNextCursor)
   })
 }
 
-function logPageCard() {
+function activityPageCard() {
   const card = el("section", "card model-card")
-  card.append(cardHeading(t("log")))
-  const list = logList()
+  card.append(cardHeading(t("activity")))
+  const list = activityList()
   list.addEventListener("scroll", () => {
-    if (logLoading || logLoadFailed || !logNextCursor) return
+    if (activityLoading || activityLoadFailed || !activityNextCursor) return
     if (list.scrollHeight - list.scrollTop - list.clientHeight < 120) {
-      void openLog(false, logNextCursor)
+      void openActivity(false, activityNextCursor)
     }
   })
   card.append(list)
   forwardWheelTo(card, list)
-  maybeAutoFillLog(list)
+  maybeAutoFillActivity(list)
   return card
 }
 
-function renderLogPage() {
+function renderActivityPage() {
   if (currentUsage) render(currentUsage)
 }
 
-async function openLog(force = false, cursor?: string) {
-  if (logLoading) return
+async function openActivity(force = false, cursor?: string) {
+  if (activityLoading) return
   stopRefreshTimer()
-  if (!force && !cursor && logEntries) {
+  if (!force && !cursor && activityEntries) {
     // 重新进入日志页时清掉上次的分页失败状态，滚动即可继续加载。
-    logLoadFailed = false
-    logError = ""
-    renderLogPage()
+    activityLoadFailed = false
+    activityError = ""
+    renderActivityPage()
     return
   }
-  const appending = !force && Boolean(cursor) && Boolean(logEntries?.length)
-  const list = appending ? logListScroller() : undefined
-  const footer = list?.querySelector<HTMLElement>(".log-footer")
+  const appending = !force && Boolean(cursor) && Boolean(activityEntries?.length)
+  const list = appending ? activityListScroller() : undefined
+  const footer = list?.querySelector<HTMLElement>(".activity-footer")
   const incremental = Boolean(appending && list && footer)
   let appended: UsageLogEntry[] | undefined
 
   if (!appending) {
     generation += 1
     loading = false
-    logEntries = undefined
-    logNextCursor = undefined
+    activityEntries = undefined
+    activityNextCursor = undefined
   }
-  logLoading = true
-  logError = ""
-  logLoadFailed = false
-  if (incremental && footer) refreshLogFooter(footer)
-  else renderLogPage()
+  activityLoading = true
+  activityError = ""
+  activityLoadFailed = false
+  if (incremental && footer) refreshActivityFooter(footer)
+  else renderActivityPage()
 
   try {
     const result = await host.serviceRequest({
       method: "POST",
-      path: "/usage-log",
-      body: JSON.stringify({ cookie, limit: logPageSize, ...(cursor ? { cursor } : {}) }),
+      path: "/activity",
+      body: JSON.stringify({ cookie, limit: activityPageSize, ...(cursor ? { cursor } : {}) }),
     })
     const payload = JSON.parse(result.body) as { error?: string; entries?: UsageLogEntry[]; nextCursor?: string }
     if (result.status < 200 || result.status >= 300 || !payload.entries) {
       throw new Error(payload.error ?? t("localError")(result.status))
     }
-    logEntries = appending ? [...(logEntries ?? []), ...payload.entries] : payload.entries
-    logNextCursor = payload.nextCursor || undefined
+    activityEntries = appending ? [...(activityEntries ?? []), ...payload.entries] : payload.entries
+    activityNextCursor = payload.nextCursor || undefined
     if (incremental) appended = payload.entries
   } catch (error) {
-    logError = localizedError(error)
+    activityError = localizedError(error)
     // 追加失败时暂停自动加载并保留已加载内容，等待用户重试。
-    logLoadFailed = appending
+    activityLoadFailed = appending
   } finally {
-    logLoading = false
+    activityLoading = false
     if (incremental && list && footer && list.isConnected) {
-      if (appended) appendLogRows(list, appended)
-      refreshLogFooter(footer)
-      if (!logLoadFailed) maybeAutoFillLog(list)
-    } else if (logOpen) {
-      renderLogPage()
-      const current = logListScroller()
-      if (current) maybeAutoFillLog(current)
+      if (appended) appendActivityRows(list, appended)
+      refreshActivityFooter(footer)
+      if (!activityLoadFailed) maybeAutoFillActivity(list)
+    } else if (activityOpen) {
+      renderActivityPage()
+      const current = activityListScroller()
+      if (current) maybeAutoFillActivity(current)
     }
   }
 }
@@ -1305,7 +1229,7 @@ function animateChangedMetrics(previous: ReturnType<typeof captureMetrics>) {
 
 function render(data: Usage, animateChanges = false) {
   if (animateChanges && currentUsage && JSON.stringify(currentUsage) === JSON.stringify(data)) {
-    if (!logOpen) setRefreshState(false)
+    if (!activityOpen) setRefreshState(false)
       const updated = root.querySelector<HTMLElement>(".dashboard-updated")
       const updatedAt = lastUpdatedAt ? dateLabel(lastUpdatedAt.toISOString()) : undefined
       if (updated && updatedAt) updated.textContent = `${t("updated")}: ${updatedAt}`
@@ -1315,11 +1239,11 @@ function render(data: Usage, animateChanges = false) {
   settingsOpen = false
   const previousMetrics = animateChanges ? captureMetrics() : new Map()
   // 重建整页时同步恢复日志列表的滚动位置，避免刷新后跳回顶部。
-  const previousLogScroll = logOpen ? logListScroller()?.scrollTop : undefined
+  const previousActivityScroll = activityOpen ? activityListScroller()?.scrollTop : undefined
   currentUsage = data
   root.replaceChildren()
   const cards = el("div", "dashboard")
-  cards.classList.toggle("dashboard-model-view", showingByModel || logOpen)
+  cards.classList.toggle("dashboard-model-view", showingByModel || activityOpen)
   const actions = actionButtons()
   const strip = el("div", "subscription-strip")
   const metadata = el("div", "subscription-metadata")
@@ -1332,8 +1256,8 @@ function render(data: Usage, animateChanges = false) {
   strip.append(metadata, actions)
   cards.append(strip)
 
-  if (logOpen) {
-    cards.append(logPageCard())
+  if (activityOpen) {
+    cards.append(activityPageCard())
   } else if (showingByModel) {
     cards.append(modelUsageCard(data))
   } else {
@@ -1430,9 +1354,9 @@ function render(data: Usage, animateChanges = false) {
 
   if (!cards.childElementCount) cards.append(el("div", "notice", t("noLimits")))
   root.append(cards)
-  if (previousLogScroll !== undefined) {
-    const list = logListScroller()
-    if (list) list.scrollTop = previousLogScroll
+  if (previousActivityScroll !== undefined) {
+    const list = activityListScroller()
+    if (list) list.scrollTop = previousActivityScroll
   }
   if (animateChanges) animateChangedMetrics(previousMetrics)
 }
@@ -1508,7 +1432,7 @@ host.onReady((ctx) => {
     language = nextLanguage
     if (!savedLanguage) void host.storage.set("language", language)
     if (settingsOpen) showSettings(undefined, false, true)
-    else if (logOpen) renderLogPage()
+    else if (activityOpen) renderActivityPage()
     else if (currentUsage) render(currentUsage)
     else if (!restoring && !loading) showSettings()
   }
@@ -1519,9 +1443,8 @@ void Promise.all([
   host.storage.get("cookie").catch(() => undefined),
   host.storage.get("fontScale").catch(() => undefined),
   host.storage.get("refreshIntervalMinutes").catch(() => undefined),
-  host.storage.get("logPageSize").catch(() => undefined),
-  host.storage.get(MODEL_LABS_STORAGE_KEY).catch(() => undefined),
-]).then(([storedLanguage, storedCookie, storedFontScale, storedRefreshInterval, storedLogPageSize, storedModelLabs]) => {
+  host.storage.get("activityPageSize").catch(() => undefined),
+]).then(([storedLanguage, storedCookie, storedFontScale, storedRefreshInterval, storedLogPageSize]) => {
   if (typeof storedFontScale === "number" && Number.isFinite(storedFontScale)) {
     fontScale = Math.max(0.8, Math.min(1.5, Math.round(storedFontScale * 20) / 20))
     root.style.setProperty("--text-scale", String(fontScale))
@@ -1532,11 +1455,7 @@ void Promise.all([
       Math.min(MAX_REFRESH_INTERVAL_MINUTES, Math.round(storedRefreshInterval)),
     )
   }
-  if (storedLogPageSize !== undefined) logPageSize = clampLogPageSize(storedLogPageSize)
-  if (isStoredModelLabs(storedModelLabs)) {
-    runtimeModelLabs = storedModelLabs.map
-    modelLabsUpdatedAt = typeof storedModelLabs.updatedAt === "string" ? storedModelLabs.updatedAt : undefined
-  }
+  if (storedLogPageSize !== undefined) activityPageSize = clampActivityPageSize(storedLogPageSize)
   if (typeof storedLanguage === "string") {
     savedLanguage = normalizeLanguage(storedLanguage)
     language = savedLanguage
