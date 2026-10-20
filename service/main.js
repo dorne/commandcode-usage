@@ -180,7 +180,7 @@ function parseByModel(body) {
 }
 var ACTIVITY_LIMIT = 10;
 var MIN_ACTIVITY_LIMIT = 1;
-var MAX_ACTIVITY_LIMIT = 50;
+var MAX_ACTIVITY_LIMIT = 100;
 var MODE_MODEL_LABELS = {
   learning: "taste-1",
   "web-search": "web-search",

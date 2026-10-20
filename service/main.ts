@@ -214,7 +214,7 @@ function parseByModel(body: unknown): Usage["byModel"] {
 
 const ACTIVITY_LIMIT = 10
 const MIN_ACTIVITY_LIMIT = 1
-const MAX_ACTIVITY_LIMIT = 50
+const MAX_ACTIVITY_LIMIT = 100
 // 与官网一致：这些模式下模型列展示固定名称，而不是实际模型 ID。
 const MODE_MODEL_LABELS: Record<string, string> = {
   learning: "taste-1",

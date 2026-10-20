@@ -1,5 +1,12 @@
 import { connectHost, HostRequestError } from "@openchamber/sdk"
-import { applyHostReady, mountButton } from "@openchamber/sdk/ui"
+import {
+  applyHostReady,
+  mountBanner,
+  mountButton,
+  mountSelect,
+  mountSpinner,
+  mountTextField,
+} from "@openchamber/sdk/ui"
 
 type WindowUsage = {
   label: string
@@ -63,8 +70,13 @@ const DEFAULT_REFRESH_INTERVAL_MINUTES = 5
 const MIN_REFRESH_INTERVAL_MINUTES = 1
 const MAX_REFRESH_INTERVAL_MINUTES = 60
 const DEFAULT_ACTIVITY_PAGE_SIZE = 10
-const MIN_ACTIVITY_PAGE_SIZE = 1
-const MAX_ACTIVITY_PAGE_SIZE = 50
+// 每页条数只提供固定档位，避免任意值带来的接口与体验差异。
+const ACTIVITY_PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const
+// 界面缩放按 5% 取档，限制在 75%–150%，避免面板被压到不可用或撑爆。
+const DEFAULT_FONT_SCALE = 100
+const MIN_FONT_SCALE = 75
+const MAX_FONT_SCALE = 150
+const FONT_SCALE_STEP = 5
 
 const messages = {
   en: {
@@ -106,13 +118,15 @@ const messages = {
     tokenBreakdown: (input: string, output: string) => `Input ${input} · Output ${output}`,
     totalRuns: "Total runs",
     averageCost: "Avg. cost / run",
-    textSize: "Text size",
-    decreaseTextSize: "Decrease text size",
-    increaseTextSize: "Increase text size",
     refreshInterval: "Auto-refresh",
     refreshIntervalMinutes: (minutes: number) => `${minutes} min`,
-    decreaseRefreshInterval: "Decrease auto-refresh interval",
-    increaseRefreshInterval: "Increase auto-refresh interval",
+    uiFontSize: "Interface font size",
+    fontSizeHint: "Scales this panel only; changes are saved automatically.",
+    decreaseFontSize: "Decrease font size",
+    increaseFontSize: "Increase font size",
+    resetFontSize: "Reset to 100%",
+    search: "Search",
+    defaultHint: "default",
     summaryUnavailable: "Usage summary is unavailable.",
     byModel: "Usage breakdown",
     usageOverview: "Usage overview",
@@ -131,10 +145,7 @@ const messages = {
     activityEmpty: "No requests have been recorded yet.",
     activityLoading: "Loading…",
     activityMore: "Scroll to load more",
-    activityLoadFailed: "Could not load more. Check your connection and try again.",
     activityPageSize: "Activity page size",
-    activityPageSizeHint: (min: number, max: number, fallback: number) => `Activity entries requested per page (${min}–${max}, default ${fallback}).`,
-    retry: "Retry",
     timing: "Duration",
     mode: "Mode",
     status: "Status",
@@ -183,13 +194,15 @@ const messages = {
     tokenBreakdown: (input: string, output: string) => `输入 ${input} · 输出 ${output}`,
     totalRuns: "运行总次数",
     averageCost: "平均每次成本",
-    textSize: "字号",
-    decreaseTextSize: "缩小字号",
-    increaseTextSize: "放大字号",
     refreshInterval: "自动刷新",
     refreshIntervalMinutes: (minutes: number) => `${minutes} 分钟`,
-    decreaseRefreshInterval: "缩短自动刷新间隔",
-    increaseRefreshInterval: "延长自动刷新间隔",
+    uiFontSize: "界面字体大小",
+    fontSizeHint: "仅缩放本插件面板，修改后自动保存。",
+    decreaseFontSize: "减小字号",
+    increaseFontSize: "增大字号",
+    resetFontSize: "恢复默认字号",
+    search: "搜索",
+    defaultHint: "默认",
     summaryUnavailable: "暂时无法获取用量汇总。",
     byModel: "用量明细",
     usageOverview: "用量总览",
@@ -208,10 +221,7 @@ const messages = {
     activityEmpty: "还没有记录到任何请求。",
     activityLoading: "正在加载…",
     activityMore: "上滑加载更多",
-    activityLoadFailed: "加载更多失败，请检查网络后重试。",
     activityPageSize: "活动记录每页数量",
-    activityPageSizeHint: (min: number, max: number, fallback: number) => `活动记录每次请求获取的条数，范围 ${min}–${max}，默认 ${fallback}。`,
-    retry: "重试",
     timing: "耗时",
     mode: "模式",
     status: "状态",
@@ -248,9 +258,9 @@ let activityError = ""
 let activityLoadFailed = false
 let draftCookie = ""
 let draftLanguage: Language = "en"
-let fontScale = 1
 let refreshIntervalMinutes = DEFAULT_REFRESH_INTERVAL_MINUTES
 let activityPageSize = DEFAULT_ACTIVITY_PAGE_SIZE
+let fontScale = DEFAULT_FONT_SCALE
 
 function showView(next: "overview" | "model" | "activity") {
   showingByModel = next === "model"
@@ -265,57 +275,12 @@ function t<K extends keyof typeof messages.en>(key: K): (typeof messages.en)[K] 
   return messages[language][key]
 }
 
-function setFontScale(value: number) {
-  fontScale = Math.max(0.8, Math.min(1.5, Math.round(value * 20) / 20))
-  root.style.setProperty("--text-scale", String(fontScale))
-  void host.storage.set("fontScale", fontScale).catch(() => {})
-  const percentage = root.querySelector<HTMLElement>(".text-size-value")
-  if (percentage) percentage.textContent = `${Math.round(fontScale * 100)}%`
-  const decrease = root.querySelector<HTMLButtonElement>(".text-size-decrease")
-  const increase = root.querySelector<HTMLButtonElement>(".text-size-increase")
-  if (decrease) decrease.disabled = fontScale <= 0.8
-  if (increase) increase.disabled = fontScale >= 1.5
-}
-
-function textSizeControl() {
-  const control = el("div", "text-size-control")
-  control.setAttribute("role", "group")
-  control.setAttribute("aria-label", t("textSize"))
-  const decrease = el("button", "text-size-button text-size-decrease", "A−")
-  decrease.type = "button"
-  decrease.title = t("decreaseTextSize")
-  decrease.setAttribute("aria-label", t("decreaseTextSize"))
-  decrease.disabled = fontScale <= 0.8
-  decrease.addEventListener("click", () => setFontScale(fontScale - 0.05))
-  const value = el("span", "text-size-value", `${Math.round(fontScale * 100)}%`)
-  const increase = el("button", "text-size-button text-size-increase", "A+")
-  increase.type = "button"
-  increase.title = t("increaseTextSize")
-  increase.setAttribute("aria-label", t("increaseTextSize"))
-  increase.disabled = fontScale >= 1.5
-  increase.addEventListener("click", () => setFontScale(fontScale + 0.05))
-  control.append(decrease, value, increase)
-  return control
-}
-
-function textSizeField() {
-  const field = el("div", "setting-row")
-  field.append(el("span", "setting-label", t("textSize")), textSizeControl())
-  return field
-}
-
 function setRefreshIntervalMinutes(value: number) {
   refreshIntervalMinutes = Math.max(
     MIN_REFRESH_INTERVAL_MINUTES,
     Math.min(MAX_REFRESH_INTERVAL_MINUTES, Math.round(value)),
   )
   void host.storage.set("refreshIntervalMinutes", refreshIntervalMinutes).catch(() => {})
-  const display = root.querySelector<HTMLElement>(".refresh-interval-value")
-  if (display) display.textContent = t("refreshIntervalMinutes")(refreshIntervalMinutes)
-  const decrease = root.querySelector<HTMLButtonElement>(".refresh-interval-decrease")
-  const increase = root.querySelector<HTMLButtonElement>(".refresh-interval-increase")
-  if (decrease) decrease.disabled = refreshIntervalMinutes <= MIN_REFRESH_INTERVAL_MINUTES
-  if (increase) increase.disabled = refreshIntervalMinutes >= MAX_REFRESH_INTERVAL_MINUTES
   scheduleRefresh()
 }
 
@@ -356,69 +321,145 @@ function resumeAfterPageShow() {
   })
 }
 
-function refreshIntervalField() {
-  const field = el("div", "setting-row")
-  const control = el("div", "text-size-control refresh-interval-control")
-  control.setAttribute("role", "group")
-  control.setAttribute("aria-label", t("refreshInterval"))
-  const decrease = el("button", "text-size-button refresh-interval-decrease", "−")
-  decrease.type = "button"
-  decrease.title = t("decreaseRefreshInterval")
-  decrease.setAttribute("aria-label", t("decreaseRefreshInterval"))
-  decrease.disabled = refreshIntervalMinutes <= MIN_REFRESH_INTERVAL_MINUTES
-  decrease.addEventListener("click", () => setRefreshIntervalMinutes(refreshIntervalMinutes - 1))
-  const value = el("span", "text-size-value refresh-interval-value", t("refreshIntervalMinutes")(refreshIntervalMinutes))
-  const increase = el("button", "text-size-button refresh-interval-increase", "+")
-  increase.type = "button"
-  increase.title = t("increaseRefreshInterval")
-  increase.setAttribute("aria-label", t("increaseRefreshInterval"))
-  increase.disabled = refreshIntervalMinutes >= MAX_REFRESH_INTERVAL_MINUTES
-  increase.addEventListener("click", () => setRefreshIntervalMinutes(refreshIntervalMinutes + 1))
-  control.append(decrease, value, increase)
-  field.append(el("span", "setting-label", t("refreshInterval")), control)
-  return field
+function mountRefreshIntervalField(target: HTMLElement) {
+  const minutes = Array.from(
+    { length: MAX_REFRESH_INTERVAL_MINUTES - MIN_REFRESH_INTERVAL_MINUTES + 1 },
+    (_, index) => MIN_REFRESH_INTERVAL_MINUTES + index,
+  )
+  const field = mountSelect(target, {
+    label: t("refreshInterval"),
+    value: String(refreshIntervalMinutes),
+    searchable: true,
+    searchPlaceholder: t("search"),
+    options: minutes.map((value) => ({
+      id: String(value),
+      label: t("refreshIntervalMinutes")(value),
+      hint: value === DEFAULT_REFRESH_INTERVAL_MINUTES ? t("defaultHint") : undefined,
+    })),
+    onChange: (id) => {
+      setRefreshIntervalMinutes(Number(id))
+      field.update({ value: id })
+    },
+  })
 }
 
 function clampActivityPageSize(value: unknown) {
   const numeric = typeof value === "number" ? value : Number(value)
   if (!Number.isFinite(numeric)) return DEFAULT_ACTIVITY_PAGE_SIZE
-  return Math.max(MIN_ACTIVITY_PAGE_SIZE, Math.min(MAX_ACTIVITY_PAGE_SIZE, Math.round(numeric)))
+  // 旧版本可能存过任意条数，这里归到最接近的预设档位。
+  return ACTIVITY_PAGE_SIZE_OPTIONS.reduce((closest, option) =>
+    Math.abs(option - numeric) < Math.abs(closest - numeric) ? option : closest,
+  )
 }
 
-function setActivityPageSize(value: unknown, persist = true) {
+function setActivityPageSize(value: unknown) {
   activityPageSize = clampActivityPageSize(value)
-  if (persist) void host.storage.set("activityPageSize", activityPageSize).catch(() => {})
-  const input = root.querySelector<HTMLInputElement>(".page-size-input")
-  if (input && input.value !== String(activityPageSize)) input.value = String(activityPageSize)
+  void host.storage.set("activityPageSize", activityPageSize).catch(() => {})
 }
 
-// 手动填写每次请求日志接口获取的条数；输入过程中只在合法范围内即时保存，失焦时统一纠正。
-function activityPageSizeField() {
-  const block = el("div", "setting-block")
-  const field = el("div", "setting-row")
-  const input = document.createElement("input")
-  input.type = "number"
-  input.className = "number-input page-size-input"
-  input.inputMode = "numeric"
-  input.min = String(MIN_ACTIVITY_PAGE_SIZE)
-  input.max = String(MAX_ACTIVITY_PAGE_SIZE)
-  input.step = "1"
-  input.value = String(activityPageSize)
-  input.setAttribute("aria-label", t("activityPageSize"))
-  input.title = t("activityPageSizeHint")(MIN_ACTIVITY_PAGE_SIZE, MAX_ACTIVITY_PAGE_SIZE, DEFAULT_ACTIVITY_PAGE_SIZE)
-  input.addEventListener("input", () => {
-    const value = Number(input.value)
-    if (input.value.trim() && Number.isFinite(value) && value >= MIN_ACTIVITY_PAGE_SIZE && value <= MAX_ACTIVITY_PAGE_SIZE) {
-      setActivityPageSize(value, false)
-    }
+// 用规范下拉组件限定每次请求日志接口获取的条数，避免手写数字输入的非法值分支。
+function mountActivityPageSizeField(target: HTMLElement) {
+  const field = mountSelect(target, {
+    label: t("activityPageSize"),
+    value: String(activityPageSize),
+    options: ACTIVITY_PAGE_SIZE_OPTIONS.map((value) => ({
+      id: String(value),
+      label: String(value),
+      hint: value === DEFAULT_ACTIVITY_PAGE_SIZE ? t("defaultHint") : undefined,
+    })),
+    onChange: (id) => {
+      setActivityPageSize(Number(id))
+      field.update({ value: id })
+    },
   })
-  input.addEventListener("change", () => setActivityPageSize(input.value.trim() ? Number(input.value) : DEFAULT_ACTIVITY_PAGE_SIZE))
-  input.addEventListener("blur", () => { input.value = String(activityPageSize) })
-  const control = el("div", "number-field")
-  control.append(input)
-  field.append(el("span", "setting-label", t("activityPageSize")), control)
-  block.append(field, el("p", "caption setting-hint", t("activityPageSizeHint")(MIN_ACTIVITY_PAGE_SIZE, MAX_ACTIVITY_PAGE_SIZE, DEFAULT_ACTIVITY_PAGE_SIZE)))
-  return block
+}
+
+function clampFontScale(value: unknown) {
+  const numeric = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(numeric)) return DEFAULT_FONT_SCALE
+  // 旧值可能来自手写存储，先归到最近的档位再夹到区间内。
+  const stepped = Math.round(numeric / FONT_SCALE_STEP) * FONT_SCALE_STEP
+  return Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCALE, stepped))
+}
+
+// 面板样式全是 px，按百分比逐条换算会漏掉尺寸；直接缩放 #root 才能整体等比。
+function applyFontScale() {
+  document.documentElement.style.setProperty("--ui-scale", String(fontScale / 100))
+}
+
+function setFontScale(value: unknown) {
+  fontScale = clampFontScale(value)
+  applyFontScale()
+  void host.storage.set("fontScale", fontScale).catch(() => {})
+}
+
+// zoom 会把固定定位子元素的坐标按倍率一起缩放，而 SDK 下拉弹层是用视口坐标定位的；
+// 弹层插入后把 left/top/minWidth 换算回未缩放空间，它才会继续贴着触发控件。
+new MutationObserver((records) => {
+  const scale = fontScale / 100
+  if (scale === 1) return
+  for (const record of records) {
+    for (const node of record.addedNodes) {
+      if (!(node instanceof HTMLElement) || !node.classList.contains("oc-sdk-popup")) continue
+      for (const name of ["left", "top", "minWidth"] as const) {
+        const value = Number.parseFloat(node.style[name])
+        if (Number.isFinite(value)) node.style[name] = `${value / scale}px`
+      }
+    }
+  }
+}).observe(document.body, { childList: true, subtree: true })
+
+function mountFontScaleField(target: HTMLElement) {
+  const field = el("div", "oc-sdk oc-sdk-field")
+  field.append(el("span", "oc-sdk-field-label", t("uiFontSize")))
+
+  const control = el("div", "font-scale-control")
+  const stepper = el("div", "font-scale-stepper")
+  const decrease = el("button", "font-scale-step")
+  decrease.type = "button"
+  decrease.title = t("decreaseFontSize")
+  decrease.setAttribute("aria-label", t("decreaseFontSize"))
+  decrease.append(svgIcon([["path", { d: "M6 12h12" }]], 14))
+  const value = el("span", "font-scale-value")
+  value.setAttribute("aria-live", "polite")
+  const increase = el("button", "font-scale-step")
+  increase.type = "button"
+  increase.title = t("increaseFontSize")
+  increase.setAttribute("aria-label", t("increaseFontSize"))
+  increase.append(svgIcon([["path", { d: "M12 6v12M6 12h12" }]], 14))
+  stepper.append(decrease, value, increase)
+
+  const reset = el("button", "icon-button font-scale-reset")
+  reset.type = "button"
+  reset.title = t("resetFontSize")
+  reset.setAttribute("aria-label", t("resetFontSize"))
+  reset.append(svgIcon([
+    ["path", { d: "M3.5 12a8.5 8.5 0 1 0 2.6-6.1M3.5 4.5V9h4.5" }],
+  ], 15))
+
+  control.append(stepper, el("span", "font-scale-unit", "%"), reset)
+  field.append(control, el("span", "oc-sdk-field-note", t("fontSizeHint")))
+  target.append(field)
+
+  const paint = () => {
+    value.textContent = String(fontScale)
+    decrease.disabled = fontScale <= MIN_FONT_SCALE
+    increase.disabled = fontScale >= MAX_FONT_SCALE
+    reset.disabled = fontScale === DEFAULT_FONT_SCALE
+  }
+  decrease.addEventListener("click", () => {
+    setFontScale(fontScale - FONT_SCALE_STEP)
+    paint()
+  })
+  increase.addEventListener("click", () => {
+    setFontScale(fontScale + FONT_SCALE_STEP)
+    paint()
+  })
+  reset.addEventListener("click", () => {
+    setFontScale(DEFAULT_FONT_SCALE)
+    paint()
+  })
+  paint()
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, value?: string) {
@@ -461,27 +502,42 @@ function creditAmount(value: number) {
   }).format(value)}`
 }
 
-function languagePicker(onChange: () => void) {
-  const picker = el("div", "setting-row")
-  picker.append(el("span", "setting-label", t("language")))
-  const select = document.createElement("select")
-  select.className = "language-select"
-  select.setAttribute("aria-label", t("language"))
-  select.disabled = loading
-  for (const [value, label] of [["en", t("english")], ["zh-CN", t("chinese")]] as const) {
-    const option = document.createElement("option")
-    option.value = value
-    option.textContent = label
-    option.selected = draftLanguage === value
-    select.append(option)
-  }
-  select.addEventListener("change", () => {
-    draftLanguage = normalizeLanguage(select.value)
-    language = draftLanguage
-    onChange()
+function mountLanguageField(target: HTMLElement, onChange: () => void) {
+  mountSelect(target, {
+    label: t("language"),
+    value: draftLanguage,
+    disabled: loading,
+    options: [
+      { id: "en", label: t("english") },
+      { id: "zh-CN", label: t("chinese") },
+    ],
+    onChange: (value) => {
+      draftLanguage = normalizeLanguage(value)
+      language = draftLanguage
+      onChange()
+    },
   })
-  picker.append(select)
-  return picker
+}
+
+type IconPath = [string, Record<string, string>]
+
+function svgIcon(paths: IconPath[], size = 16) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+  svg.setAttribute("viewBox", "0 0 24 24")
+  svg.setAttribute("width", String(size))
+  svg.setAttribute("height", String(size))
+  svg.setAttribute("fill", "none")
+  svg.setAttribute("stroke", "currentColor")
+  svg.setAttribute("stroke-width", "2")
+  svg.setAttribute("stroke-linecap", "round")
+  svg.setAttribute("stroke-linejoin", "round")
+  svg.setAttribute("aria-hidden", "true")
+  for (const [tag, attributes] of paths) {
+    const shape = document.createElementNS("http://www.w3.org/2000/svg", tag)
+    for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value)
+    svg.append(shape)
+  }
+  return svg
 }
 
 function iconButton(icon: "refresh" | "settings" | "chart" | "activity", label: string, className?: string) {
@@ -490,19 +546,7 @@ function iconButton(icon: "refresh" | "settings" | "chart" | "activity", label: 
   button.setAttribute("aria-label", label)
   button.title = label
 
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
-  svg.classList.add(`icon-${icon}`)
-  svg.setAttribute("viewBox", "0 0 24 24")
-  svg.setAttribute("width", "16")
-  svg.setAttribute("height", "16")
-  svg.setAttribute("fill", "none")
-  svg.setAttribute("stroke", "currentColor")
-  svg.setAttribute("stroke-width", "2")
-  svg.setAttribute("stroke-linecap", "round")
-  svg.setAttribute("stroke-linejoin", "round")
-  svg.setAttribute("aria-hidden", "true")
-
-  const paths: Array<[string, Record<string, string>]> = icon === "refresh"
+  const paths: IconPath[] = icon === "refresh"
     ? [
         ["path", { d: "M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5" }],
         ["path", { d: "M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" }],
@@ -524,35 +568,15 @@ function iconButton(icon: "refresh" | "settings" | "chart" | "activity", label: 
         ["rect", { x: "17", y: "4", width: "3", height: "12", rx: ".5" }],
       ]
 
-  for (const [tag, attributes] of paths) {
-    const shape = document.createElementNS("http://www.w3.org/2000/svg", tag)
-    for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value)
-    svg.append(shape)
-  }
+  const svg = svgIcon(paths)
+  svg.classList.add(`icon-${icon}`)
   button.append(svg)
   return button
 }
-
 function showLoading() {
   root.replaceChildren()
   const indicator = el("div", "loading-screen")
-  indicator.setAttribute("role", "status")
-  indicator.setAttribute("aria-label", t("checking"))
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
-  svg.setAttribute("viewBox", "0 0 24 24")
-  svg.setAttribute("width", "28")
-  svg.setAttribute("height", "28")
-  svg.setAttribute("fill", "none")
-  svg.setAttribute("aria-hidden", "true")
-  const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle")
-  circle.setAttribute("cx", "12")
-  circle.setAttribute("cy", "12")
-  circle.setAttribute("r", "9")
-  circle.setAttribute("stroke", "currentColor")
-  circle.setAttribute("stroke-width", "3")
-  circle.setAttribute("stroke-dasharray", "42 15")
-  svg.append(circle)
-  indicator.append(svg)
+  mountSpinner(indicator, { label: t("checking") })
   root.append(indicator)
 }
 
@@ -570,29 +594,36 @@ function showSettings(message?: string, error = false, preserveDraft = false) {
   root.append(top)
   root.append(el("p", "muted", t("pasteHelp")))
 
-  const label = el("label", "field-label", t("cookieLabel"))
-  const input = document.createElement("textarea")
-  input.autocomplete = "off"
-  input.spellcheck = false
-  input.rows = 3
-  input.placeholder = "__Secure-commandcode_prod_.session_token=…; …"
-  input.value = draftCookie
-  input.setAttribute("aria-label", t("cookieLabel"))
-  input.addEventListener("input", () => { draftCookie = input.value })
-  label.append(input)
-  root.append(label)
-  root.append(el("p", "caption sensitive-caption", t("sensitive")))
-  root.append(languagePicker(() => showSettings(message, error, true)))
-  root.append(textSizeField())
-  root.append(refreshIntervalField())
-  root.append(activityPageSizeField())
+  const form = el("div", "settings-form")
+  root.append(form)
 
-  if (message) root.append(el("div", `notice${error ? " error" : ""}`, message))
+  mountTextField(form, {
+    label: t("cookieLabel"),
+    value: draftCookie,
+    onChange: (value) => { draftCookie = value },
+    placeholder: "__Secure-commandcode_prod_.session_token=…; …",
+    multiline: true,
+    rows: 3,
+    mono: true,
+    helper: t("sensitive"),
+  })
+  const cookieInput = form.querySelector<HTMLTextAreaElement>(".oc-sdk-field textarea")
+  if (cookieInput) {
+    cookieInput.setAttribute("autocomplete", "off")
+    cookieInput.setAttribute("spellcheck", "false")
+  }
+
+  mountLanguageField(form, () => showSettings(message, error, true))
+  mountFontScaleField(form)
+  mountRefreshIntervalField(form)
+  mountActivityPageSizeField(form)
+
+  if (message) mountBanner(form, { tone: error ? "error" : "info", title: message })
   const controls = el("div", "controls settings-actions")
   if (currentUsage) {
     mountButton(controls, {
       label: t("back"),
-      variant: "ghost",
+      variant: "outline",
       onClick: () => {
         language = savedLanguage ?? hostLanguage
         render(currentUsage!)
@@ -1003,7 +1034,8 @@ function activityListScroller() {
   return root.querySelector<HTMLElement>(".model-list")
 }
 
-// 列表尾部的状态区：加载中 / 加载失败 / 上滑提示。高度固定，避免状态切换时撑动滚动位置。
+// 列表尾部的状态区：加载中 / 上滑提示。高度固定，避免状态切换时撑动滚动位置。
+// 加载失败改为页面顶部的提示，与首页 / Usage breakdown 的错误位置一致。
 function activityFooter() {
   const footer = el("div", "activity-footer")
   refreshActivityFooter(footer)
@@ -1020,23 +1052,7 @@ function refreshActivityFooter(footer: HTMLElement) {
     footer.append(text)
     return
   }
-  if (activityError && activityNextCursor) {
-    footer.append(el("span", "activity-footer-text is-error", activityError || t("activityLoadFailed")))
-    mountButton(footer, {
-      label: t("retry"),
-      variant: "outline",
-      size: "sm",
-      onClick: () => {
-        if (activityLoading) return
-        activityLoadFailed = false
-        activityError = ""
-        refreshActivityFooter(footer)
-        void openActivity(false, activityNextCursor)
-      },
-    })
-    return
-  }
-  if (activityNextCursor) footer.append(el("span", "activity-footer-text", t("activityMore")))
+  if (activityNextCursor && !activityLoadFailed) footer.append(el("span", "activity-footer-text", t("activityMore")))
 }
 
 // 分页追加时把新行插到尾部状态区之前，不重建整页，滚动位置保持不变。
@@ -1053,9 +1069,9 @@ function activityList() {
   list.tabIndex = 0
   list.setAttribute("aria-label", t("activity"))
   const hasEntries = Boolean(activityEntries?.length)
-  if (!hasEntries) {
-    list.append(el("p", "summary-unavailable", activityError || (activityLoading ? t("activityLoading") : t("activityEmpty"))))
-  } else {
+  if (!hasEntries && !activityError) {
+    list.append(el("p", "summary-unavailable", activityLoading ? t("activityLoading") : t("activityEmpty")))
+  } else if (hasEntries) {
     for (const entry of activityEntries!) list.append(activityRow(entry))
   }
   list.append(activityFooter())
@@ -1117,6 +1133,7 @@ async function openActivity(force = false, cursor?: string) {
   activityLoading = true
   activityError = ""
   activityLoadFailed = false
+  clearActivityError()
   if (incremental && footer) refreshActivityFooter(footer)
   else renderActivityPage()
 
@@ -1135,8 +1152,9 @@ async function openActivity(force = false, cursor?: string) {
     if (incremental) appended = payload.entries
   } catch (error) {
     activityError = localizedError(error)
-    // 追加失败时暂停自动加载并保留已加载内容，等待用户重试。
+    // 追加失败时暂停自动加载并保留已加载内容，等待用户刷新；提示显示在页面顶部。
     activityLoadFailed = appending
+    if (incremental) showActivityError(activityError)
   } finally {
     activityLoading = false
     if (incremental && list && footer && list.isConnected) {
@@ -1356,6 +1374,7 @@ function render(data: Usage, animateChanges = false) {
 
   if (!cards.childElementCount) cards.append(el("div", "notice", t("noLimits")))
   root.append(cards)
+  if (activityOpen && activityError) showActivityError(activityError)
   if (previousActivityScroll !== undefined) {
     const list = activityListScroller()
     if (list) list.scrollTop = previousActivityScroll
@@ -1375,6 +1394,22 @@ function showRefreshError(message: string) {
   root.querySelector(".refresh-error")?.remove()
   const notice = el("div", "notice error refresh-error", message)
   root.querySelector(".dashboard")?.before(notice)
+}
+
+// Activity 的加载失败与首页刷新失败使用同一种整宽提示，放在仪表盘顶部（「套餐」行上方），
+// 这样固定高度的仪表盘会把空间让给提示，而不是把整个面板撑出滚动条。
+function showActivityError(message: string) {
+  const existing = root.querySelector<HTMLElement>(".activity-error")
+  if (existing) {
+    existing.textContent = message
+    return
+  }
+  const notice = el("div", "notice error activity-error", message)
+  root.querySelector(".dashboard")?.prepend(notice)
+}
+
+function clearActivityError() {
+  root.querySelector(".activity-error")?.remove()
 }
 
 async function load() {
@@ -1444,14 +1479,10 @@ host.onReady((ctx) => {
 void Promise.all([
   host.storage.get("language").catch(() => undefined),
   host.storage.get("cookie").catch(() => undefined),
-  host.storage.get("fontScale").catch(() => undefined),
   host.storage.get("refreshIntervalMinutes").catch(() => undefined),
   host.storage.get("activityPageSize").catch(() => undefined),
-]).then(([storedLanguage, storedCookie, storedFontScale, storedRefreshInterval, storedLogPageSize]) => {
-  if (typeof storedFontScale === "number" && Number.isFinite(storedFontScale)) {
-    fontScale = Math.max(0.8, Math.min(1.5, Math.round(storedFontScale * 20) / 20))
-    root.style.setProperty("--text-scale", String(fontScale))
-  }
+  host.storage.get("fontScale").catch(() => undefined),
+]).then(([storedLanguage, storedCookie, storedRefreshInterval, storedLogPageSize, storedFontScale]) => {
   if (typeof storedRefreshInterval === "number" && Number.isFinite(storedRefreshInterval)) {
     refreshIntervalMinutes = Math.max(
       MIN_REFRESH_INTERVAL_MINUTES,
@@ -1459,6 +1490,8 @@ void Promise.all([
     )
   }
   if (storedLogPageSize !== undefined) activityPageSize = clampActivityPageSize(storedLogPageSize)
+  fontScale = clampFontScale(storedFontScale)
+  applyFontScale()
   if (typeof storedLanguage === "string") {
     savedLanguage = normalizeLanguage(storedLanguage)
     language = savedLanguage
