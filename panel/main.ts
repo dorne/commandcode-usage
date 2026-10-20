@@ -72,6 +72,10 @@ const MAX_REFRESH_INTERVAL_MINUTES = 60
 const DEFAULT_ACTIVITY_PAGE_SIZE = 10
 // 每页条数只提供固定档位，避免任意值带来的接口与体验差异。
 const ACTIVITY_PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const
+// Work Status 状态卡布局：明细（三行读数）或紧凑（一行配额），存入面板存储供状态区块读取。
+type StatusLayout = "detail" | "compact"
+const DEFAULT_STATUS_LAYOUT: StatusLayout = "detail"
+const STATUS_LAYOUT_OPTIONS: StatusLayout[] = ["detail", "compact"]
 // 界面缩放按 5% 取档，限制在 75%–150%，避免面板被压到不可用或撑爆。
 const DEFAULT_FONT_SCALE = 100
 const MIN_FONT_SCALE = 75
@@ -146,6 +150,9 @@ const messages = {
     activityLoading: "Loading…",
     activityMore: "Scroll to load more",
     activityPageSize: "Activity page size",
+    statusLayout: "Status card layout",
+    statusLayoutDetail: "Detailed",
+    statusLayoutCompact: "Compact",
     timing: "Duration",
     mode: "Mode",
     status: "Status",
@@ -222,6 +229,9 @@ const messages = {
     activityLoading: "正在加载…",
     activityMore: "上滑加载更多",
     activityPageSize: "活动记录每页数量",
+    statusLayout: "状态卡布局",
+    statusLayoutDetail: "明细",
+    statusLayoutCompact: "紧凑",
     timing: "耗时",
     mode: "模式",
     status: "状态",
@@ -260,6 +270,7 @@ let draftCookie = ""
 let draftLanguage: Language = "en"
 let refreshIntervalMinutes = DEFAULT_REFRESH_INTERVAL_MINUTES
 let activityPageSize = DEFAULT_ACTIVITY_PAGE_SIZE
+let statusLayout: StatusLayout = DEFAULT_STATUS_LAYOUT
 let fontScale = DEFAULT_FONT_SCALE
 
 function showView(next: "overview" | "model" | "activity") {
@@ -369,6 +380,32 @@ function mountActivityPageSizeField(target: HTMLElement) {
     })),
     onChange: (id) => {
       setActivityPageSize(Number(id))
+      field.update({ value: id })
+    },
+  })
+}
+
+// 状态卡布局存进插件存储，Work Status 区块每次取数时读取，无需宿主推送。
+function setStatusLayout(value: unknown) {
+  statusLayout = STATUS_LAYOUT_OPTIONS.includes(value as StatusLayout) ? value as StatusLayout : DEFAULT_STATUS_LAYOUT
+  void host.storage.set("statusLayout", statusLayout).catch(() => {})
+}
+
+function mountStatusLayoutField(target: HTMLElement) {
+  const labels: Record<StatusLayout, string> = {
+    detail: t("statusLayoutDetail"),
+    compact: t("statusLayoutCompact"),
+  }
+  const field = mountSelect(target, {
+    label: t("statusLayout"),
+    value: statusLayout,
+    options: STATUS_LAYOUT_OPTIONS.map((value) => ({
+      id: value,
+      label: labels[value],
+      hint: value === DEFAULT_STATUS_LAYOUT ? t("defaultHint") : undefined,
+    })),
+    onChange: (id) => {
+      setStatusLayout(id)
       field.update({ value: id })
     },
   })
@@ -617,6 +654,7 @@ function showSettings(message?: string, error = false, preserveDraft = false) {
   mountFontScaleField(form)
   mountRefreshIntervalField(form)
   mountActivityPageSizeField(form)
+  mountStatusLayoutField(form)
 
   if (message) mountBanner(form, { tone: error ? "error" : "info", title: message })
   const controls = el("div", "controls settings-actions")
@@ -640,6 +678,7 @@ function showSettings(message?: string, error = false, preserveDraft = false) {
       const cookieChanged = nextCookie !== previousCookie
       cookie = nextCookie
       language = draftLanguage
+      if (cookieChanged) void host.storage.delete("statusCache").catch(() => {})
       void host.storage.set("language", language).then(() => {
         savedLanguage = language
         settingsOpen = false
@@ -1482,7 +1521,8 @@ void Promise.all([
   host.storage.get("refreshIntervalMinutes").catch(() => undefined),
   host.storage.get("activityPageSize").catch(() => undefined),
   host.storage.get("fontScale").catch(() => undefined),
-]).then(([storedLanguage, storedCookie, storedRefreshInterval, storedLogPageSize, storedFontScale]) => {
+  host.storage.get("statusLayout").catch(() => undefined),
+]).then(([storedLanguage, storedCookie, storedRefreshInterval, storedLogPageSize, storedFontScale, storedStatusLayout]) => {
   if (typeof storedRefreshInterval === "number" && Number.isFinite(storedRefreshInterval)) {
     refreshIntervalMinutes = Math.max(
       MIN_REFRESH_INTERVAL_MINUTES,
@@ -1492,6 +1532,9 @@ void Promise.all([
   if (storedLogPageSize !== undefined) activityPageSize = clampActivityPageSize(storedLogPageSize)
   fontScale = clampFontScale(storedFontScale)
   applyFontScale()
+  if (STATUS_LAYOUT_OPTIONS.includes(storedStatusLayout as StatusLayout)) {
+    statusLayout = storedStatusLayout as StatusLayout
+  }
   if (typeof storedLanguage === "string") {
     savedLanguage = normalizeLanguage(storedLanguage)
     language = savedLanguage

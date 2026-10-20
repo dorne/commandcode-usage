@@ -1,12 +1,12 @@
 {
   "name": "commandcode-usage",
-  "version": "1.2.0",
+  "version": "1.3.2",
   "description": "OpenChamber extension for viewing CommandCode account usage",
   "scripts": {
-    "build": "bun x openchamber-guest-bundle panel/main.ts panel/main.js && bun x openchamber-guest-bundle --node service/main.ts service/main.js"
+    "build": "bun x openchamber-guest-bundle panel/main.ts panel/main.js && bun x openchamber-guest-bundle status/main.ts status/main.js && bun x openchamber-guest-bundle --node service/main.ts service/main.js"
   },
   "dependencies": {
-    "@openchamber/sdk": "^1.24.0"
+    "@openchamber/sdk": "2.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0"
@@ -14,7 +14,7 @@
   "openchamber": {
     "apiVersion": 1,
     "engines": {
-      "openchamber": ">=1.24.0"
+      "openchamber": ">=1.24.1"
     },
     "contributes": {
       "panel": {
@@ -22,6 +22,12 @@
         "name": "CommandCode Usage",
         "icon": "icon.svg",
         "entry": "panel/index.html"
+      },
+      "statusSection": {
+        "entry": "status/index.html",
+        "title": "CommandCode Usage",
+        "height": 52,
+        "defaultExpanded": true
       },
       "service": {
         "entry": "service/main.js",

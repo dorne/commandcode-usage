@@ -1,0 +1,147 @@
+/* Work Status 区块：紧凑（usage + 一行配额 + 重置行）与明细（usage + 三行读数）两种布局。 */
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+body {
+  padding: 3px 2px 5px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--oc-fg, inherit);
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.qs-line {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 4px;
+}
+
+.qs-item {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.qs-k {
+  color: var(--oc-muted, #888);
+  font-size: 11px;
+}
+
+.qs-v {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.qs-sep {
+  color: var(--oc-muted, #888);
+  font-size: 10px;
+  opacity: 0.65;
+}
+
+.qs-usage {
+  color: var(--oc-muted, #888);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qs-sub {
+  overflow: hidden;
+  color: var(--oc-muted, #888);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qs-hint {
+  margin: 0;
+  color: var(--oc-muted, #888);
+  font-size: 11.5px;
+  line-height: 17px;
+}
+
+/* 明细布局 */
+.qd-usage {
+  margin-bottom: 5px;
+  overflow: hidden;
+  color: var(--oc-muted, #888);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qd-row + .qd-row {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.qd-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.qd-k {
+  color: var(--oc-muted, #888);
+  font-size: 11px;
+}
+
+.qd-v {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.qd-bar {
+  height: 3px;
+  margin-top: 3px;
+  border-radius: 99px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  overflow: hidden;
+}
+
+.qd-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--oc-primary, #8c4edd);
+}
+
+.qd-sub {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--oc-muted, #888);
+  font-size: 11px;
+  line-height: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

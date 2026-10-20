@@ -17,6 +17,7 @@ English | [简体中文](README.zh-CN.md)
 ## Features
 
 - Displays rolling **5-hour** and **weekly** usage windows, followed by monthly credit balance.
+- Adds a **CommandCode 用量 / Usage** section to the chat's Work Status panel, in two switchable layouts saved from the panel's Settings: **Compact** (one line with the 5-hour, weekly, and monthly quotas, plus tokens and runs) and **Detailed** (three rows with progress bars). It refreshes strictly on the panel's auto-refresh interval, keeps its last result across collapse and expand without re-requesting, and offers a Refresh action in the section header.
 - Shows total tokens, input/output token breakdown, total runs, and average cost per run.
 - Lists usage for each model sorted by its share of credits consumed, highest first, including total/input/output tokens, request counts, failures, and credits consumed.
 - Adds an **Activity** action on the home panel that shows model calls in the same table layout as Usage breakdown. It loads 10 entries per page by default and fetches more on scroll: time, all input tokens, output tokens, duration, model, mode, status, cost, and trace ID.
@@ -31,7 +32,7 @@ English | [简体中文](README.zh-CN.md)
 
 ## Requirements
 
-- [OpenChamber](https://github.com/openchamber/openchamber) **1.24.0 or later**.
+- [OpenChamber](https://github.com/openchamber/openchamber) **1.24.1 or later**.
 - For building from source: [Bun](https://bun.sh/).
 
 ## Install
@@ -46,14 +47,14 @@ English | [简体中文](README.zh-CN.md)
 ### Install from a local folder
 
 1. Clone or download this repository.
-2. In the extension folder, run `bun install` and `bun run build` to generate the panel and service JavaScript.
+2. In the extension folder, run `bun install` and `bun run build` to generate the panel, status, and service JavaScript.
 3. In OpenChamber, open **Settings → Extensions** and add the extension folder.
 4. Review and approve the local service when prompted.
 5. Open the panel; Settings opens automatically if no Cookie has been saved. Paste your Cookie and select **Save**.
 
 The distributed ZIP contains the built JavaScript files and does not require Bun on the target machine.
 
-If OpenChamber cannot parse or install the ZIP, verify that it was built from the project folder and includes `package.json`, `panel/index.html`, `panel/main.js`, the declared icon, and `service/main.js`. The package manifest must have a valid version. Rebuild and create a fresh ZIP rather than renaming or manually nesting an archive.
+If OpenChamber cannot parse or install the ZIP, verify that it was built from the project folder and includes `package.json`, `panel/index.html`, `panel/main.js`, `status/index.html`, `status/main.js`, the declared icon, and `service/main.js`. The package manifest must have a valid version. Rebuild and create a fresh ZIP rather than renaming or manually nesting an archive.
 
 ## Build and package
 

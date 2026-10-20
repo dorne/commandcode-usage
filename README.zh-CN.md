@@ -17,6 +17,7 @@
 ## 功能
 
 - 按 **5 小时、每周、月度** 的顺序显示用量和剩余额度。
+- 在会话右侧的 Work Status 状态卡中增加一块 **CommandCode 用量 / Usage** 读数，可在面板设置中切换两种布局并保存：**紧凑**（一行显示 Token、次数和 5 小时、每周、月度配额）与**明细**（三行读数带进度条）。刷新严格按面板设置的自动刷新间隔执行；折叠再展开不会强制取数，只有间隔到点才更新；表头提供刷新按钮可手动取数。
 - 显示 Token 总数、输入/输出 Token 明细、运行总次数和平均每次成本。
 - 按消耗额度占比从高到低列出各模型用量，包括 Token 总数及输入/输出明细、请求次数、失败次数和消耗额度。
 - 首页提供“活动记录”入口，使用与 Usage breakdown 相同的表格布局列出模型调用记录；默认每次加载 10 条，滚动到底后继续加载。字段包括时间、全部输入、输出 Token、耗时、模型、模式、状态、费用和追踪 ID。
@@ -31,7 +32,7 @@
 
 ## 环境要求
 
-- OpenChamber **1.24.0 或更高版本**。
+- OpenChamber **1.24.1 或更高版本**。
 - 从源码构建时需要安装 [Bun](https://bun.sh/)；安装已构建的 ZIP 不需要 Bun。
 
 ## 安装
@@ -46,7 +47,7 @@
 ### 从本地目录安装
 
 1. 克隆或下载本仓库。
-2. 在插件目录运行 `bun install` 和 `bun run build`，生成面板及服务所需的 JavaScript。
+2. 在插件目录运行 `bun install` 和 `bun run build`，生成面板、状态区块及服务所需的 JavaScript。
 3. 在 OpenChamber 中打开 **Settings → Extensions**，添加插件目录。
 4. 检查插件代码，并按需批准本地服务。
 5. 打开插件面板；如果尚未保存 Cookie，会自动进入设置。填写 Cookie 并保存。
@@ -60,9 +61,9 @@ bun install
 bun run build
 ```
 
-Windows 用户在 PowerShell 中运行 `./pack-plugin.ps1`，即可在当前目录生成 `commandcode-usage.zip`。压缩包包含安装和运行所需文件及 MIT `LICENSE`，不包含 README、TypeScript 源码或 `node_modules`。打包脚本会检查必需文件和 ZIP 结构；打包前请确保构建已完成，使 `panel/main.js` 和 `service/main.js` 为最新版本。
+Windows 用户在 PowerShell 中运行 `./pack-plugin.ps1`，即可在当前目录生成 `commandcode-usage.zip`。压缩包包含安装和运行所需文件及 MIT `LICENSE`，不包含 README、TypeScript 源码或 `node_modules`。打包脚本会检查必需文件和 ZIP 结构；打包前请确保构建已完成，使 `panel/main.js`、`status/main.js` 和 `service/main.js` 为最新版本。
 
-如果 OpenChamber 提示无法解析或安装 ZIP，请确认 ZIP 是从插件目录生成的，且根目录直接包含 `package.json`、`panel/index.html`、`panel/main.js`、清单中声明的图标以及 `service/main.js`。清单还必须带有有效的版本号。重新构建并生成 ZIP；不要只改扩展名，也不要手动把整个项目目录嵌套进压缩包。
+如果 OpenChamber 提示无法解析或安装 ZIP，请确认 ZIP 是从插件目录生成的，且根目录直接包含 `package.json`、`panel/index.html`、`panel/main.js`、`status/index.html`、`status/main.js`、清单中声明的图标以及 `service/main.js`。清单还必须带有有效的版本号。重新构建并生成 ZIP；不要只改扩展名，也不要手动把整个项目目录嵌套进压缩包。
 
 ## Cookie 与隐私
 

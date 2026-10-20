@@ -12,6 +12,9 @@ $requiredFiles = @(
   "panel\index.html",
   "panel\styles.css",
   "panel\main.js",
+  "status\index.html",
+  "status\styles.css",
+  "status\main.js",
   "service\main.js"
 )
 $staging = Join-Path ([System.IO.Path]::GetTempPath()) ("$packageName-" + [guid]::NewGuid().ToString("N"))
