@@ -4,31 +4,21 @@ A lightweight OpenChamber extension for checking CommandCode usage limits, month
 
 English | [简体中文](README.zh-CN.md)
 
-<p align="center">
-  <img src="docs/images/commandcode-usage.png" alt="CommandCode Usage panel" width="320">
-  &nbsp;&nbsp;
-  <img src="docs/images/commandcode-usage-breakdown.png" alt="CommandCode Usage breakdown" width="320">
-  <br><br>
-  <img src="docs/images/commandcode-usage-activity.png" alt="CommandCode Usage activity" width="320">
-  &nbsp;&nbsp;
-  <img src="docs/images/commandcode-usage-settings.png" alt="CommandCode Usage settings" width="320">
-</p>
-
 ## Features
 
 - Displays rolling **5-hour** and **weekly** usage windows, followed by monthly credit balance.
-- Adds a **CommandCode 用量 / Usage** section to the chat's Work Status panel, in two switchable layouts saved from the panel's Settings: **Compact** (one line with the 5-hour, weekly, and monthly quotas, plus tokens and runs) and **Detailed** (three rows with progress bars). It refreshes strictly on the panel's auto-refresh interval, keeps its last result across collapse and expand without re-requesting, and offers a Refresh action in the section header.
+- Adds a **CommandCode Usage** section to the chat's Work Status panel, in two switchable layouts saved from the panel's Settings: **Compact** (one line with the 5-hour, weekly, and monthly quotas, plus tokens and runs) and **Detailed** (three rows with progress bars). It follows the panel's auto-refresh interval and the saved layout, keeps its last result across collapse and when the panel reopens within that interval without re-requesting, and offers a Refresh action in the section header. A missing reset time for the 5-hour window is shown as **n/a**.
 - Shows total tokens, input/output token breakdown, total runs, and average cost per run.
 - Lists usage for each model sorted by its share of credits consumed, highest first, including total/input/output tokens, request counts, failures, and credits consumed.
 - Adds an **Activity** action on the home panel that shows model calls in the same table layout as Usage breakdown. It loads 10 entries per page by default and fetches more on scroll: time, all input tokens, output tokens, duration, model, mode, status, cost, and trace ID.
 - Shows the provider logo before each model name in **Usage breakdown** and **Activity**. Logos come from models.dev (`/logos/labs/{lab}.svg`), matched by naming rules (provider prefix, known aliases, `claude*`/`gpt*`); models with no match fall back to models.dev's default icon.
-- Shows the subscription plan when available; the `Active` status is hidden.
+- Shows the subscription plan and top-up credits when available; the `Active` status is hidden.
 - Refreshes on demand or automatically while the panel is open. Configure the interval in Settings from 1 to 60 minutes in one-minute steps; the default is five minutes.
 - Animates changing values with a vertical slide and fade inside a clipped, fixed-height line box, alongside smoothly updated progress bars. The animation respects the system's reduced-motion preference.
 - Includes in-panel controls for interface font size, auto-refresh interval, and Activity page size; every preference is saved. The font size steps by 5% from 75% to 150% with a reset button and defaults to 100%; the Activity page size is chosen from 10, 25, 50, or 100 and defaults to 10.
 - Opens Settings on first launch so you can add your Cookie immediately.
 - Includes English and Simplified Chinese UI.
-- Stores the CommandCode Cookie, language, interface font size, auto-refresh interval, and Activity page size in OpenChamber extension storage so they remain available after reopening the panel.
+- Stores the CommandCode Cookie, language, interface font size, auto-refresh interval, Activity page size, and status card layout in OpenChamber extension storage so they remain available after reopening the panel. The status section also caches its last reading, so it renders immediately while the saved interval has not elapsed.
 
 ## Requirements
 
@@ -91,7 +81,7 @@ The extension currently reads these CommandCode endpoints:
 
 These are **undocumented internal endpoints**, not a stable public API. CommandCode may change or remove them at any time, which can temporarily or permanently break usage reporting. The panel only displays data returned by the endpoints.
 
-Monthly remaining credits, token totals, input/output token counts, total runs, and average cost are shown when returned by the endpoints. Per-model token totals, input/output tokens, request counts, failed requests, and credits consumed are listed with the models consuming the largest share of credits first; models without credit data fall back to request count, then name. A monthly used percentage is shown only when the subscription plan and rolling usage caps match the extension's built-in plan catalog; otherwise, the extension avoids estimating a total allowance. Monthly reset time is shown when the credits endpoint provides it, with the subscription period end used as a fallback.
+Monthly remaining credits, token totals, input/output token counts, total runs, and average cost are shown when returned by the endpoints. When the endpoints omit the 5-hour reset time, the status section shows **n/a** in its place. Per-model token totals, input/output tokens, request counts, failed requests, and credits consumed are listed with the models consuming the largest share of credits first; models without credit data fall back to request count, then name. A monthly used percentage is shown only when the subscription plan and rolling usage caps match the extension's built-in plan catalog; otherwise, the extension avoids estimating a total allowance. Monthly reset time is shown when the credits endpoint provides it, with the subscription period end used as a fallback.
 
 The **Activity** page fetches model-call records from the internal usage endpoint in pages of 10 by default (configurable in Settings as 10, 25, 50, or 100), loading the next page when scrolled to the bottom. Fields not returned by the endpoint appear as a dash. Trace IDs are displayed locally and are not sent to any other service.
 
