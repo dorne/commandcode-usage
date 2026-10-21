@@ -50,6 +50,7 @@ const messages = {
     error: "Could not read quotas",
     empty: "No quota data returned",
     monthlyUnknown: "Monthly allowance is not verified",
+    unknown: "n/a",
   },
   "zh-CN": {
     fiveHour: "5 小时",
@@ -66,6 +67,7 @@ const messages = {
     error: "读取配额失败",
     empty: "未返回配额数据",
     monthlyUnknown: "无法确认月度总额度",
+    unknown: "暂无",
   },
 } as const
 
@@ -157,7 +159,7 @@ function windowRows() {
       label: t().fiveHour,
       percent: five.percent,
       value: `${five.percent}%`,
-      sub: `${t().used} ${money(five.used)} / ${money(five.limit)}${reset ? ` · ${reset} ${t().resets}` : ""}`,
+      sub: `${t().used} ${money(five.used)} / ${money(five.limit)} · ${reset ? `${reset} ${t().resets}` : `${t().resets} ${t().unknown}`}`,
     })
   }
   if (weekly) {
@@ -221,7 +223,7 @@ function renderCompact(target: HTMLElement) {
   const resets: string[] = []
   const five = usage?.windows.find((item) => item.label === "5-hour")
   const weekly = usage?.windows.find((item) => item.label === "Weekly")
-  const fiveReset = five ? shortReset(five.resetsAt, true) : ""
+  const fiveReset = five ? shortReset(five.resetsAt, true) || t().unknown : ""
   const weeklyReset = weekly ? shortReset(weekly.resetsAt, true) : ""
   const monthlyReset = shortReset(usage?.monthlyResetsAt ?? usage?.periodEnd, true)
   if (fiveReset) resets.push(fiveReset)
