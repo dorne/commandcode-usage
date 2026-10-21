@@ -36,7 +36,7 @@ p { font-size: var(--text-body); line-height: 20px; }
 .card-actions .icon-button { flex: 0 0 30px; width: 30px; height: 30px; padding: 0; }
 .card-actions .icon-button svg { width: 18px; height: 18px; }
 .icon-refresh { stroke-width: 1.8; }
-.subscription-strip { display: flex; min-width: 0; align-items: flex-end; justify-content: space-between; flex-wrap: nowrap; gap: 6px; }
+.subscription-strip { display: flex; min-width: 0; align-items: center; justify-content: space-between; flex-wrap: nowrap; gap: 6px; }
 .subscription-metadata { display: grid; min-width: 0; flex: 1 1 0; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 6px; row-gap: 2px; font-size: var(--text-secondary); line-height: 16px; }
 .subscription-metadata > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .subscription-plan strong { color: var(--oc-fg, inherit); }
