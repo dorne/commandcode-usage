@@ -5,7 +5,7 @@
     "": {
       "name": "commandcode-usage",
       "dependencies": {
-        "@openchamber/sdk": "2.2.0",
+        "@openchamber/sdk": "2.5.1",
       },
       "devDependencies": {
         "@types/node": "^22.0.0",
@@ -13,7 +13,7 @@
     },
   },
   "packages": {
-    "@openchamber/sdk": ["@openchamber/sdk@2.2.0", "", { "dependencies": { "zod": "^4.3.6" }, "bin": { "openchamber-guest-bundle": "scripts/bundle-guest.ts" } }, "sha512-9Eri02wLE+G8h5CfKR/OId1Mo/Tt7pfww6iKWA6h2DaRH5Cm0g+Jl6As5EgsPPvDVffJN6n3KXSs1od+3R1tYQ=="],
+    "@openchamber/sdk": ["@openchamber/sdk@2.5.1", "", { "dependencies": { "zod": "^4.3.6" }, "bin": { "openchamber-guest-bundle": "scripts/bundle-guest.ts" } }, "sha512-U2u+JMfqAOnr8JM8apAOdgt21leze3nCxxPqtda9wrflBKOOxGJ4nkvzzIrwRpVy38OcZapEIjgmLrvnuzHZeg=="],
 
     "@types/node": ["@types/node@22.20.5", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA=="],
 

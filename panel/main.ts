@@ -110,7 +110,7 @@ const messages = {
     rateLimited: "CommandCode rate limited this request. Please wait before refreshing.",
     timeout: "The request to CommandCode timed out. Please try again.",
     serviceError: "Could not read CommandCode usage. Check your connection and try again.",
-    fiveHour: "5-hour",
+    fiveHour: "5-Hour",
     weekly: "Weekly",
     language: "Language",
     english: "English",
@@ -161,6 +161,18 @@ const messages = {
     statusInProgress: "Running",
     statusCompleted: "Completed",
     statusFailed: "Failed",
+    statusCanceled: "Canceled",
+    statusTrialing: "Trialing",
+    statusPastDue: "Past due",
+    statusUnpaid: "Unpaid",
+    statusIncomplete: "Incomplete",
+    statusExpired: "Expired",
+    statusPaused: "Paused",
+    unknown: "unknown",
+    modeDefault: "Default",
+    modeLearning: "Learning",
+    modeWebSearch: "Web search",
+    modeWebFetch: "Web fetch",
   },
   "zh-CN": {
     pasteHelp: "粘贴从 CommandCode 用量页面复制的 Cookie 请求头。Cookie 会保存在 OpenChamber 的此插件数据中，卸载插件时自动删除。",
@@ -240,6 +252,18 @@ const messages = {
     statusInProgress: "进行中",
     statusCompleted: "已完成",
     statusFailed: "失败",
+    statusCanceled: "已取消",
+    statusTrialing: "试用中",
+    statusPastDue: "已逾期",
+    statusUnpaid: "未支付",
+    statusIncomplete: "未完成",
+    statusExpired: "已过期",
+    statusPaused: "已暂停",
+    unknown: "未知",
+    modeDefault: "默认",
+    modeLearning: "学习",
+    modeWebSearch: "网页搜索",
+    modeWebFetch: "网页抓取",
   },
 } satisfies Record<Language, Record<string, string | ((...args: never[]) => string)>>
 
@@ -252,11 +276,18 @@ let nextRefreshAt = 0
 let suspendedForPageHide = false
 let generation = 0
 let language: Language = "en"
+
+function setLanguage(next: Language) {
+  language = next
+  document.documentElement.lang = next === "zh-CN" ? "zh-CN" : "en"
+}
 let currentUsage: Usage | undefined
 let lastUpdatedAt: Date | undefined
 let restoring = true
 let hostLanguage: Language = "en"
 let savedLanguage: Language | undefined
+let hostReady = false
+let pendingBoot: (() => void) | undefined
 let settingsOpen = false
 let showingByModel = false
 let activityOpen = false
@@ -279,11 +310,29 @@ function showView(next: "overview" | "model" | "activity") {
 }
 
 function normalizeLanguage(value: unknown): Language {
-  return typeof value === "string" && value.trim().toLowerCase().replaceAll("_", "-") === "zh-cn" ? "zh-CN" : "en"
+  if (typeof value !== "string") return "en"
+  const text = value.trim().toLowerCase().replaceAll("_", "-")
+  return text === "zh" || text.startsWith("zh-") ? "zh-CN" : "en"
 }
 
 function t<K extends keyof typeof messages.en>(key: K): (typeof messages.en)[K] {
   return messages[language][key]
+}
+
+// 宿主 ready 之前拿不到界面语言。先不画任何文案，等 ready 后再按宿主语言渲染，
+// 避免首次进入设置页时先闪一帧英文再切成中文（独立预览没有宿主应答时 1.5s 后继续）。
+function whenLocaleKnown(run: () => void) {
+  if (hostReady) {
+    run()
+    return
+  }
+  pendingBoot = run
+  window.setTimeout(() => {
+    if (pendingBoot !== run) return
+    pendingBoot = undefined
+    hostReady = true
+    run()
+  }, 1500)
 }
 
 function setRefreshIntervalMinutes(value: number) {
@@ -451,51 +500,55 @@ function mountFontScaleField(target: HTMLElement) {
   field.append(el("span", "oc-sdk-field-label", t("uiFontSize")))
 
   const control = el("div", "font-scale-control")
-  const stepper = el("div", "font-scale-stepper")
-  const decrease = el("button", "font-scale-step")
-  decrease.type = "button"
-  decrease.title = t("decreaseFontSize")
-  decrease.setAttribute("aria-label", t("decreaseFontSize"))
-  decrease.append(svgIcon([["path", { d: "M6 12h12" }]], 14))
+  const decrease = mountButton(control, {
+    label: "−",
+    variant: "outline",
+    size: "sm",
+    onClick: () => {
+      setFontScale(fontScale - FONT_SCALE_STEP)
+      paint()
+    },
+  })
+  const decreaseButton = control.lastElementChild as HTMLButtonElement
+  decreaseButton.title = t("decreaseFontSize")
+  decreaseButton.setAttribute("aria-label", t("decreaseFontSize"))
+
   const value = el("span", "font-scale-value")
   value.setAttribute("aria-live", "polite")
-  const increase = el("button", "font-scale-step")
-  increase.type = "button"
-  increase.title = t("increaseFontSize")
-  increase.setAttribute("aria-label", t("increaseFontSize"))
-  increase.append(svgIcon([["path", { d: "M12 6v12M6 12h12" }]], 14))
-  stepper.append(decrease, value, increase)
+  control.append(value)
 
-  const reset = el("button", "icon-button font-scale-reset")
-  reset.type = "button"
-  reset.title = t("resetFontSize")
-  reset.setAttribute("aria-label", t("resetFontSize"))
-  reset.append(svgIcon([
-    ["path", { d: "M3.5 12a8.5 8.5 0 1 0 2.6-6.1M3.5 4.5V9h4.5" }],
-  ], 15))
+  const increase = mountButton(control, {
+    label: "+",
+    variant: "outline",
+    size: "sm",
+    onClick: () => {
+      setFontScale(fontScale + FONT_SCALE_STEP)
+      paint()
+    },
+  })
+  const increaseButton = control.lastElementChild as HTMLButtonElement
+  increaseButton.title = t("increaseFontSize")
+  increaseButton.setAttribute("aria-label", t("increaseFontSize"))
 
-  control.append(stepper, el("span", "font-scale-unit", "%"), reset)
+  const reset = mountButton(control, {
+    label: t("resetFontSize"),
+    variant: "ghost",
+    size: "sm",
+    onClick: () => {
+      setFontScale(DEFAULT_FONT_SCALE)
+      paint()
+    },
+  })
+
   field.append(control, el("span", "oc-sdk-field-note", t("fontSizeHint")))
   target.append(field)
 
   const paint = () => {
-    value.textContent = String(fontScale)
-    decrease.disabled = fontScale <= MIN_FONT_SCALE
-    increase.disabled = fontScale >= MAX_FONT_SCALE
-    reset.disabled = fontScale === DEFAULT_FONT_SCALE
+    value.textContent = `${fontScale}%`
+    decrease.update({ disabled: fontScale <= MIN_FONT_SCALE })
+    increase.update({ disabled: fontScale >= MAX_FONT_SCALE })
+    reset.update({ disabled: fontScale === DEFAULT_FONT_SCALE })
   }
-  decrease.addEventListener("click", () => {
-    setFontScale(fontScale - FONT_SCALE_STEP)
-    paint()
-  })
-  increase.addEventListener("click", () => {
-    setFontScale(fontScale + FONT_SCALE_STEP)
-    paint()
-  })
-  reset.addEventListener("click", () => {
-    setFontScale(DEFAULT_FONT_SCALE)
-    paint()
-  })
   paint()
 }
 
@@ -550,7 +603,11 @@ function mountLanguageField(target: HTMLElement, onChange: () => void) {
     ],
     onChange: (value) => {
       draftLanguage = normalizeLanguage(value)
-      language = draftLanguage
+      setLanguage(draftLanguage)
+      // 语言选择立即生效并持久化：否则只改下拉再重启会回到宿主语言，
+      // 出现“设置里是英文、启动加载却是中文”的不一致。
+      savedLanguage = draftLanguage
+      void host.storage.set("language", draftLanguage).catch(() => {})
       onChange()
     },
   })
@@ -663,7 +720,7 @@ function showSettings(message?: string, error = false, preserveDraft = false) {
       label: t("back"),
       variant: "outline",
       onClick: () => {
-        language = savedLanguage ?? hostLanguage
+        setLanguage(savedLanguage ?? hostLanguage)
         render(currentUsage!)
         scheduleRefresh()
       },
@@ -677,7 +734,7 @@ function showSettings(message?: string, error = false, preserveDraft = false) {
       const nextCookie = draftCookie.trim()
       const cookieChanged = nextCookie !== previousCookie
       cookie = nextCookie
-      language = draftLanguage
+      setLanguage(draftLanguage)
       if (cookieChanged) void host.storage.delete("statusCache").catch(() => {})
       void host.storage.set("language", language).then(() => {
         savedLanguage = language
@@ -876,15 +933,52 @@ function activityCost(value?: number) {
   return `$${fixed}`
 }
 
-function activityStatusBadge(entry: UsageLogEntry) {
-  const status = entry.status ?? "unknown"
+function subscriptionStatusLabel(status: string) {
+  const key = status.trim().toLowerCase().replace(/[\s-]+/g, "_")
+  const labels: Record<string, string> = {
+    trialing: t("statusTrialing"),
+    past_due: t("statusPastDue"),
+    canceled: t("statusCanceled"),
+    cancelled: t("statusCanceled"),
+    unpaid: t("statusUnpaid"),
+    incomplete: t("statusIncomplete"),
+    incomplete_expired: t("statusExpired"),
+    expired: t("statusExpired"),
+    paused: t("statusPaused"),
+  }
+  // 中文界面不直接显示英文状态码；英文界面保留服务端原文以便排查。
+  return labels[key] ?? (language === "en" ? status : t("unknown"))
+}
+
+function activityStatusLabel(status: string) {
   const labels: Record<string, string> = {
     pending: t("statusPending"),
     in_progress: t("statusInProgress"),
+    running: t("statusInProgress"),
     completed: t("statusCompleted"),
+    success: t("statusCompleted"),
     failed: t("statusFailed"),
+    error: t("statusFailed"),
+    canceled: t("statusCanceled"),
+    cancelled: t("statusCanceled"),
   }
-  const badge = el("span", `chip is-${status.replace(/_/g, "-")}`, labels[status] ?? status.replace(/_/g, " "))
+  return labels[status] ?? (language === "en" ? status.replace(/_/g, " ") : t("unknown"))
+}
+
+function activityModeLabel(mode?: string) {
+  if (!mode) return "—"
+  const labels: Record<string, string> = {
+    default: t("modeDefault"),
+    learning: t("modeLearning"),
+    "web-search": t("modeWebSearch"),
+    "web-fetch": t("modeWebFetch"),
+  }
+  return labels[mode.trim().toLowerCase()] ?? mode
+}
+
+function activityStatusBadge(entry: UsageLogEntry) {
+  const status = entry.status ?? "unknown"
+  const badge = el("span", `chip is-${status.replace(/_/g, "-")}`, activityStatusLabel(status))
   if (entry.message) badge.title = entry.message
   return badge
 }
@@ -1059,7 +1153,7 @@ function activityRow(entry: UsageLogEntry) {
 
   // 模式 / 状态 / 费用 单独一行
   const requestLine = el("div", "model-request-line")
-  const meta = el("span", "model-requests", `${t("mode")} ${entry.mode ?? "—"} · ${t("status")} `)
+  const meta = el("span", "model-requests", `${t("mode")} ${activityModeLabel(entry.mode)} · ${t("status")} `)
   meta.append(activityStatusBadge(entry))
   requestLine.append(meta)
   const spend = el("span", "model-spend")
@@ -1311,7 +1405,7 @@ function render(data: Usage, animateChanges = false) {
     plan.append(el("span", "muted", `${t("plan")}: `), el("strong", undefined, data.plan.replace(/[_-]+/g, " ")))
     metadata.append(plan)
   }
-  if (data.status && data.status.toLowerCase() !== "active") metadata.append(el("span", "subscription-status", data.status))
+  if (data.status && data.status.toLowerCase() !== "active") metadata.append(el("span", "subscription-status", subscriptionStatusLabel(data.status)))
   strip.append(metadata, actions)
   cards.append(strip)
 
@@ -1396,7 +1490,7 @@ function render(data: Usage, animateChanges = false) {
     fill.dataset.changeKey = `${usageKey}-progress`
     fill.style.width = `${usage.percent}%`
     progress.append(fill)
-    const usageDetails = el("p", "caption", t("usedPercent")(usage.percent, usage.resetsAt ? dateLabel(usage.resetsAt) ?? "unknown" : undefined))
+    const usageDetails = el("p", "caption", t("usedPercent")(usage.percent, usage.resetsAt ? dateLabel(usage.resetsAt) ?? t("unknown") : undefined))
     usageDetails.dataset.changeKey = `${usageKey}-details`
     usageDetails.dataset.metricText = usageDetails.textContent ?? ""
     section.append(progress, usageDetails)
@@ -1503,16 +1597,24 @@ async function load() {
 
 host.onReady((ctx) => {
   applyHostReady(ctx, document.documentElement)
-  hostLanguage = normalizeLanguage(ctx.settings.language)
+  hostReady = true
+  // `ctx.settings` 是扩展自己的设置值，不是宿主界面语言；宿主语言只在 `ctx.locale` 里。
+  // 扩展没有保存过语言时跟随宿主界面语言，保存过则始终以存储为准。
+  hostLanguage = normalizeLanguage(ctx.locale)
   const nextLanguage = savedLanguage ?? hostLanguage
+  const boot = pendingBoot
+  pendingBoot = undefined
   if (nextLanguage !== language) {
-    language = nextLanguage
+    setLanguage(nextLanguage)
     if (!savedLanguage) void host.storage.set("language", language)
     if (settingsOpen) showSettings(undefined, false, true)
     else if (activityOpen) renderActivityPage()
     else if (currentUsage) render(currentUsage)
+    else if (boot) boot()
     else if (!restoring && !loading) showSettings()
+    return
   }
+  boot?.()
 })
 
 void Promise.all([
@@ -1537,22 +1639,24 @@ void Promise.all([
   }
   if (typeof storedLanguage === "string") {
     savedLanguage = normalizeLanguage(storedLanguage)
-    language = savedLanguage
+    setLanguage(savedLanguage)
   } else {
-    language = hostLanguage
+    setLanguage(hostLanguage)
     void host.storage.set("language", language)
   }
   restoring = false
   if (currentUsage) render(currentUsage)
-  if (typeof storedCookie === "string" && storedCookie.trim()) {
-    cookie = storedCookie
-    void load()
-  } else {
-    showSettings()
-  }
+  whenLocaleKnown(() => {
+    if (typeof storedCookie === "string" && storedCookie.trim()) {
+      cookie = storedCookie
+      void load()
+    } else {
+      showSettings()
+    }
+  })
 }).catch(() => {
   restoring = false
-  showSettings()
+  whenLocaleKnown(() => showSettings())
 })
 
 document.addEventListener("visibilitychange", refreshIfDue)

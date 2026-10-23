@@ -36,10 +36,12 @@ const CACHE_KEY = "statusCache"
 
 const messages = {
   en: {
-    fiveHour: "5h",
+    fiveHour: "5-Hour",
     weekly: "Weekly",
     monthly: "Monthly",
     tokens: "Tokens",
+    in: "in",
+    out: "out",
     runs: "Runs",
     used: "Used",
     resets: "resets",
@@ -57,6 +59,8 @@ const messages = {
     weekly: "每周",
     monthly: "每月",
     tokens: "Token",
+    in: "输入",
+    out: "输出",
     runs: "次数",
     used: "已用",
     resets: "重置",
@@ -75,6 +79,11 @@ const host = connectHost()
 const root = document.getElementById("root")!
 
 let language: Language = "en"
+
+function setLanguage(next: Language) {
+  language = next
+  document.documentElement.lang = next === "zh-CN" ? "zh-CN" : "en"
+}
 let layout: Layout = DEFAULT_LAYOUT
 let viewState: ViewState = "loading"
 let usage: StatusUsage | null = null
@@ -198,9 +207,10 @@ function usageLine() {
   const parts: string[] = []
   if (summary.totalTokens !== undefined) {
     const io: string[] = []
-    if (summary.totalTokensIn !== undefined) io.push(`in ${compactNumber(summary.totalTokensIn)}`)
-    if (summary.totalTokensOut !== undefined) io.push(`out ${compactNumber(summary.totalTokensOut)}`)
-    parts.push(`${t().tokens} ${compactNumber(summary.totalTokens)}${io.length ? `(${io.join(", ")})` : ""}`)
+    if (summary.totalTokensIn !== undefined) io.push(`${t().in} ${compactNumber(summary.totalTokensIn)}`)
+    if (summary.totalTokensOut !== undefined) io.push(`${t().out} ${compactNumber(summary.totalTokensOut)}`)
+    const separator = language === "zh-CN" ? "、" : ", "
+    parts.push(`${t().tokens} ${compactNumber(summary.totalTokens)}${io.length ? ` (${io.join(separator)})` : ""}`)
   }
   if (summary.totalCount !== undefined) parts.push(`${t().runs} ${new Intl.NumberFormat(language === "zh-CN" ? "zh-CN" : "en-US").format(summary.totalCount)}`)
   return parts.join(" · ")
@@ -341,7 +351,7 @@ async function load() {
       host.storage.get("refreshIntervalMinutes").catch(() => undefined),
     ])
     const previousLanguage = language
-    if (storedLanguage === "zh-CN" || storedLanguage === "en") language = storedLanguage
+    if (storedLanguage === "zh-CN" || storedLanguage === "en") setLanguage(storedLanguage)
     if (storedLayout === "detail" || storedLayout === "compact") layout = storedLayout
     if (typeof storedInterval === "number" && Number.isFinite(storedInterval)) {
       refreshMinutes = clampRefresh(storedInterval)
@@ -400,8 +410,8 @@ async function boot() {
   ])
   const [storedLanguage, storedLayout, storedInterval, storedCache] = stored
   // 语言严格按面板设置：存储里有值就用它，否则退回宿主 locale，不看浏览器语言。
-  if (storedLanguage === "zh-CN" || storedLanguage === "en") language = storedLanguage
-  else if (hostLocale) language = hostLocale.toLowerCase().startsWith("zh") ? "zh-CN" : "en"
+  if (storedLanguage === "zh-CN" || storedLanguage === "en") setLanguage(storedLanguage)
+  else if (hostLocale) setLanguage(hostLocale.toLowerCase().startsWith("zh") ? "zh-CN" : "en")
   layout = storedLayout === "detail" || storedLayout === "compact" ? storedLayout : DEFAULT_LAYOUT
   if (typeof storedInterval === "number" && Number.isFinite(storedInterval)) {
     refreshMinutes = clampRefresh(storedInterval)
@@ -439,7 +449,7 @@ host.onReady((ctx) => {
     return
   }
   mounted = true
-  // 宿主 locale 只作为面板未设置语言时的兜底，语言本身以面板存储为准，避免首帧闪动。
+  // 宿主 locale 只作为面板未设置语言时的兜底；语言本身以面板存储为准，避免首帧闪动。
   hostLocale = ctx.locale
   void boot()
 })

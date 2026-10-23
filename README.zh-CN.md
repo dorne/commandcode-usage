@@ -53,7 +53,7 @@ bun run build
 
 Windows 用户在 PowerShell 中运行 `./pack-plugin.ps1`，即可在当前目录生成 `commandcode-usage.zip`。压缩包包含安装和运行所需文件及 MIT `LICENSE`，不包含 README、TypeScript 源码或 `node_modules`。打包脚本会检查必需文件和 ZIP 结构；打包前请确保构建已完成，使 `panel/main.js`、`status/main.js` 和 `service/main.js` 为最新版本。
 
-如果 OpenChamber 提示无法解析或安装 ZIP，请确认 ZIP 是从插件目录生成的，且根目录直接包含 `package.json`、`panel/index.html`、`panel/main.js`、`status/index.html`、`status/main.js`、清单中声明的图标以及 `service/main.js`。清单还必须带有有效的版本号。重新构建并生成 ZIP；不要只改扩展名，也不要手动把整个项目目录嵌套进压缩包。
+如果 OpenChamber 提示无法解析或安装 ZIP，请确认 ZIP 是从插件目录生成的，且根目录直接包含 `package.json`、`panel/index.html`、`panel/main.js`、`panel/styles.css`、`status/index.html`、`status/main.js`、`status/styles.css`、清单中声明的图标以及 `service/main.js`。清单还必须带有有效的版本号。重新构建并生成 ZIP；不要只改扩展名，也不要手动把整个项目目录嵌套进压缩包。
 
 ## Cookie 与隐私
 

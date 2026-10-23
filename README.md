@@ -44,7 +44,7 @@ English | [简体中文](README.zh-CN.md)
 
 The distributed ZIP contains the built JavaScript files and does not require Bun on the target machine.
 
-If OpenChamber cannot parse or install the ZIP, verify that it was built from the project folder and includes `package.json`, `panel/index.html`, `panel/main.js`, `status/index.html`, `status/main.js`, the declared icon, and `service/main.js`. The package manifest must have a valid version. Rebuild and create a fresh ZIP rather than renaming or manually nesting an archive.
+If OpenChamber cannot parse or install the ZIP, verify that it was built from the project folder and includes `package.json`, `panel/index.html`, `panel/main.js`, `panel/styles.css`, `status/index.html`, `status/main.js`, `status/styles.css`, the declared icon, and `service/main.js`. The package manifest must have a valid version. Rebuild and create a fresh ZIP rather than renaming or manually nesting an archive.
 
 ## Build and package
 
